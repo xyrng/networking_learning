@@ -14,6 +14,10 @@
 #include <arpa/inet.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <sys/stat.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/sendfile.h>
 
 #define PORT "3490"  // the port users will be connecting to
 
@@ -34,7 +38,7 @@ void *get_in_addr(struct sockaddr *sa)
 	return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-int main(void)
+int main(int argc, char *argv[])
 {
 	int sockfd, new_fd;  // listen on sock_fd, new connection on new_fd
 	struct addrinfo hints, *servinfo, *p;
@@ -44,6 +48,21 @@ int main(void)
 	int yes=1;
 	char s[INET6_ADDRSTRLEN];
 	int rv;
+
+    char* filename;
+    struct stat file_stat;
+    uint8_t file_size;
+
+	if (argc != 2) {
+	    fprintf(stderr,"usage: server filename\n");
+	    exit(1);
+	}
+    filename = argv[1];
+    if (stat(filename, &file_stat) == -1) {
+        perror("Error getting file size");
+    } else {
+        file_size = (uint8_t) file_stat.st_size;
+    }
 
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_UNSPEC;
@@ -72,7 +91,7 @@ int main(void)
 		if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
 			close(sockfd);
 			perror("server: bind");
-			continue;
+		continue;
 		}
 
 		break;
@@ -115,8 +134,25 @@ int main(void)
 
 		if (!fork()) { // this is the child process
 			close(sockfd); // child doesn't need the listener
-			if (send(new_fd, "Hello, world!", 13, 0) == -1)
-				perror("send");
+			if (send(new_fd, &file_size, 1, 0) == -1)
+				perror("Error sending file size.");
+            else {
+                int fd = open(filename, O_RDONLY);
+                if (fd == -1)
+                    perror("Error opening file.");
+                else {
+                    size_t bytes_to_send = file_size;
+                    do {
+                        size_t bytes_sent = sendfile(new_fd, fd, 0, bytes_to_send);
+                        if (bytes_sent == -1) {
+                            perror("Error transmitting file.");
+                            break;
+                        }
+                        bytes_to_send -= bytes_sent;
+                    } while (bytes_to_send > 0);
+                    close(fd);
+                }
+            }
 			close(new_fd);
 			exit(0);
 		}
