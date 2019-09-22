@@ -247,7 +247,7 @@ int assign_struct_var(char *str_ptr, char *end_ptr, char *dest) {
     return -1;
   }
   *end_ptr = 0;
-  dest = strdup(rl_ptr);
+  dest = strdup(str_ptr);
   return 1;
 }
 
