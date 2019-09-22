@@ -24,6 +24,25 @@ typedef struct http_status {
     const char* status_code;
     const char* reason;
 } http_status;
+
+typedef struct http_response {
+	char *version;
+	char *status;
+	char *reason;
+	size_t cl;
+} http_response;
+
+typedef struct http_request {
+	char *method;					// req line
+	char *request_uri;		// req line
+	char *version;				// req line
+	char *ua;							// header
+	char *accept;					// header
+	char *host;						// header
+	char *port;
+	int keepalive;				// header
+} http_request;
+
 const http_status HTTP_ERROR = { "400", "Bad Request" };
 const http_status HTTP_OK = { "200", "OK" };
 const http_status HTTP_NOT_FOUND = { "404", "NOT FOUND" };
@@ -171,3 +190,89 @@ int main(void)
 	return 0;
 }
 
+int assign_struct_var(char *str_ptr, char *end_ptr, char *dest) {
+  end_ptr = strstr(str_ptr, " ");
+  if (end_ptr == NULL) {
+    fprintf(stderr, "[Error] Wrong Request Message(Method end).\n");
+    return -1;
+  }
+  *end_ptr = 0;
+  dest = strdup(rl_ptr);
+  return 1;
+}
+
+// request_str -> struct http_request
+int parse_request_header(http_request *req, char *request_str) {
+  if (request_str == NULL || *request_str == 0) {
+    fprintf(stderr, "[Error] NULL Request.\n");
+    return -1;
+  }
+  char *request = strdup(request_str);
+  char *end_ptr;
+  int str_size;
+  char *header_ptr = strstr(request, "\r\n");
+  if (header_ptr == NULL) {
+    fprintf(stderr, "[Error] Wrong Request Format.\n");
+    return -1;
+  }
+  *header_ptr = 0;
+  header_ptr += 2;
+  // request-line
+  char *rl_ptr = request;
+  // Method
+  if (assign_struct_var(rl_ptr, end_ptr, req->method) == -1) {
+    return -1;
+  }
+  // Request-URI
+  rl_ptr = end_ptr + 1;
+  if (*rl_ptr == 0) {
+    fprintf(stderr, "[Error] Wrong Request Message(Request-URI start).\n");
+    return -1;
+  }
+  if (assign_struct_var(rl_ptr, end_ptr, req->request_uri) == -1) {
+    return -1;
+  }
+  // HTTP-Version
+  rl_ptr = end_ptr + 1;
+  if (*rl_ptr == 0) {
+    fprintf(stderr, "[Error] Wrong Request Message(HTTP-Version start).\n");
+    return -1;
+  }
+  if (assign_struct_var(rl_ptr, end_ptr, req->version) == -1) {
+    return -1;
+  }
+
+  // request_header
+  // if (header_ptr == NULL || *header_ptr == 0) {
+  //   fprintf(stderr, "[Error] Wrong Request Message(header).\n");
+  //   return -1;
+  // }
+  // char *header_end = strstr(header_ptr, "\r\n\r\n");
+  // if (header_end == NULL) {
+  //   fprintf(stderr, "[Error] Wrong Request Message(header end).\n");
+  //   return -1;
+  // }
+  // *header_end = '\0';
+
+
+  free(request);
+  return 1;
+}
+
+// http_response -> string
+size_t generate_response(char **response_str, http_response *rep) {
+  int cl_loc = strlen(rep->version) + 1 + strlen(rep->status) + 1 + strlen(rep->reason) + 2;
+  int length = cl_loc + 30 + 4;
+  char *response = malloc(length);
+  strcat(response, rep->version);
+  strcat(response, " ");
+  strcat(response, rep->status);
+  strcat(response, " ");
+  strcat(response, rep->reason);
+  strcat(response, "\r\n");
+
+  sprintf(response + cl_loc, "Content-Length: %d", rep->cl);
+  strcat(response, "\r\n\r\n");
+  *response_str = response;
+  return strlen(response);
+}
