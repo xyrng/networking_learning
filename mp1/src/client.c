@@ -244,6 +244,7 @@ int build_request(http_request *req, char *input) {
         // port
         str_size = file_path - port_ptr - 1; // '/' - ':'
         port = malloc(str_size + 1);
+				memset(port, 0, str_size + 1);
         strncpy(port, port_ptr + 1, str_size);
         port[str_size] = '\0';
         if (atoi(port) > 65535) {
@@ -291,6 +292,7 @@ size_t generate_request(char **request_str, http_request *new_request) {
     size_t retval = request_str_size(new_request);
     printf("%d\n", retval);
     char *request = malloc(retval + 1);
+		memset(request, 0, retval + 1);
     // request line
     strcat(request, new_request->method);
     strcat(request, " ");

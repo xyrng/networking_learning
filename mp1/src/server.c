@@ -314,6 +314,7 @@ size_t generate_response(char **response_str, http_response *rep) {
   int cl_loc = strlen(rep->version) + 1 + strlen(rep->status) + 1 + strlen(rep->reason) + 2;
   int length = cl_loc + 30 + 4;
   char *response = malloc(length);
+  memset(response, 0, length);
   strcat(response, rep->version);
   strcat(response, " ");
   strcat(response, rep->status);
