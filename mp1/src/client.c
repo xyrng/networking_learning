@@ -62,7 +62,7 @@ int recv_header(int sock_fd, char** response_header, char* buf, size_t* content_
             if (new_addr != NULL) {
                 *response_header = new_addr;
             } else {
-                fprintf(stderr, "Error allocating buffer for header");
+                fprintf(stderr, "Error allocating buffer for header.\n");
                 return -1;
             }
         }
@@ -174,7 +174,7 @@ int main(int argc, char *argv[])
 
     http_response response = {0};
     if (parse_response_header(response_header, &response)) {
-        fprintf(stderr, "Error parsing response");
+        fprintf(stderr, "Error parsing response.\n");
         exit(1);
     }
 
@@ -290,7 +290,6 @@ size_t request_str_size(http_request *new_request) {
 
 size_t generate_request(char **request_str, http_request *new_request) {
     size_t retval = request_str_size(new_request);
-    printf("%d\n", retval);
     char *request = malloc(retval + 1);
 		memset(request, 0, retval + 1);
     // request line
@@ -376,13 +375,13 @@ int parse_response_header(const char *response_str, http_response *rep) {
 
     char *cl_ptr = strstr(str_ptr, "Content-Length: ");
     if (!cl_ptr || !(end_ptr == strstr(cl_ptr, "\r\n"))) {
-        fprintf(stderr, "[Error] No Content-Length");
+        fprintf(stderr, "[Error] No Content-Length.\n");
         return -1;
     } else {
         char* guard;
         rep->cl = strtol(cl_ptr, &guard, 10);
         if (guard != end_ptr) {
-            fprintf(stderr, "[Error] Error parsing content length");
+            fprintf(stderr, "[Error] Error parsing content length.\n");
             return -1;
         }
     }

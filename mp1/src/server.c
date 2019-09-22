@@ -46,20 +46,32 @@ typedef struct http_response {
 	size_t cl;
 } http_response;
 
-typedef struct http_request {
-	char *method;					// req line
-	char *request_uri;		// req line
-	char *version;				// req line
-	char *ua;							// header
-	char *accept;					// header
-	char *host;						// header
-	char *port;
-	int keepalive;				// header
-} http_request;
-
 const http_status HTTP_ERROR = { "400", "Bad Request" };
 const http_status HTTP_OK = { "200", "OK" };
 const http_status HTTP_NOT_FOUND = { "404", "NOT FOUND" };
+
+size_t generate_response(char **response_str, http_response *rep);
+
+void respond(http_status status, size_t content_length, int new_fd) {
+	http_response *new_rep = malloc(sizeof(http_response));
+	new_rep->version = strdup("HTTP/1.1");
+	new_rep->status = strdup(status.status_code);
+	new_rep->reason = strdup(status.reason);
+	if (content_length != -1) {
+		new_rep->cl = content_length;
+	}
+	char *response_str;
+	size_t bytes_to_send = generate_response(&response_str, new_rep);
+	do {
+			size_t bytes_sent = send(new_fd, response_str, bytes_to_send, 0);
+			if (bytes_sent == -1) {
+					perror("Error transmitting respond Message.\n");
+					exit(1);
+			}
+			bytes_to_send -= bytes_sent;
+	} while (bytes_to_send > 0);
+}
+
 
 void sigchld_handler(int s)
 {
@@ -106,6 +118,108 @@ int recv_header(int sock_fd, char** response_header, char* buf, size_t* content_
             return 0;
         }
     }
+}
+
+int assign_struct_var(char *str_ptr, char *end_ptr, char *dest) {
+  end_ptr = strstr(str_ptr, " ");
+  if (end_ptr == NULL) {
+    fprintf(stderr, "[Error] Wrong Request Message(Method end).\n");
+    return -1;
+  }
+  *end_ptr = 0;
+  dest = strdup(str_ptr);
+  return 0;
+}
+
+// request_str -> struct http_request
+int parse_request_header(http_request *req, char *request_str) {
+  if (request_str == NULL || *request_str == 0) {
+    fprintf(stderr, "[Error] NULL Request.\n");
+    return -1;
+  }
+  char *request = strdup(request_str);
+  char *end_ptr;
+  char *header_ptr = strstr(request, "\r\n");
+  if (header_ptr == NULL) {
+    fprintf(stderr, "[Error] Wrong Request Format.\n");
+    return -1;
+  }
+  *header_ptr = 0;
+  header_ptr += 2;
+  // request-line
+  char *rl_ptr = request;
+  // Method
+  if (assign_struct_var(rl_ptr, end_ptr, req->method)) {
+    return -1;
+  }
+  // Request-URI
+  rl_ptr = end_ptr + 1;
+  if (*rl_ptr == 0) {
+    fprintf(stderr, "[Error] Wrong Request Message(Request-URI start).\n");
+    return -1;
+  }
+  if (assign_struct_var(rl_ptr, end_ptr, req->request_uri) == -1) {
+    return -1;
+  }
+  // HTTP-Version
+  rl_ptr = end_ptr + 1;
+  if (*rl_ptr == 0) {
+    fprintf(stderr, "[Error] Wrong Request Message(HTTP-Version start).\n");
+    return -1;
+  }
+  if (assign_struct_var(rl_ptr, end_ptr, req->version) == -1) {
+    return -1;
+  }
+
+  // request_header
+  // if (header_ptr == NULL || *header_ptr == 0) {
+  //   fprintf(stderr, "[Error] Wrong Request Message(header).\n");
+  //   return -1;
+  // }
+  // char *header_end = strstr(header_ptr, "\r\n\r\n");
+  // if (header_end == NULL) {
+  //   fprintf(stderr, "[Error] Wrong Request Message(header end).\n");
+  //   return -1;
+  // }
+  // *header_end = '\0';
+
+
+  free(request);
+  return 1;
+}
+
+// http_response -> string
+size_t generate_response(char **response_str, http_response *rep) {
+	if (!strncmp(rep->status, "200", 3)) {
+		int cl_loc = strlen(rep->version) + 1 + strlen(rep->status) + 1 + strlen(rep->reason) + 2;
+	  int length = cl_loc + 30 + 4;
+	  char *response = malloc(length);
+	  memset(response, 0, length);
+	  strcat(response, rep->version);
+	  strcat(response, " ");
+	  strcat(response, rep->status);
+	  strcat(response, " ");
+	  strcat(response, rep->reason);
+	  strcat(response, "\r\n");
+
+	  sprintf(response + cl_loc, "Content-Length: %d", (int)rep->cl);
+	  strcat(response, "\r\n\r\n");
+	  *response_str = response;
+	  return strlen(response);
+	} else {
+		int length = strlen(rep->version) + 1 + strlen(rep->status) + 1 + strlen(rep->reason) + 4 + 1;
+		char *response = malloc(length);
+	  memset(response, 0, length);
+		strcat(response, rep->version);
+	  strcat(response, " ");
+	  strcat(response, rep->status);
+	  strcat(response, " ");
+	  strcat(response, rep->reason);
+	  strcat(response, "\r\n\r\n");
+		response[length] = 0;
+		*response_str = response;
+	  return strlen(response);
+	}
 }
 
 int main(int argc, char *argv[])
@@ -196,12 +310,12 @@ int main(int argc, char *argv[])
             close(sockfd); // child doesn't need the listener
 
             char* request_header = NULL;
-            char buf[MAX_BUFFER] = 0;
+            char buf[MAX_BUFFER] = "";
             size_t content_received = 0;
             http_request request = {0};
             if (recv_header(sockfd, &request_header, &buf, &content_received) ||
                     parse_request_header(&request, request_header)) {
-                respond(HTTP_ERROR);
+                respond(HTTP_ERROR, -1, new_fd);
                 shutdown(new_fd, SHUT_RDWR);
                 close(new_fd);
                 exit(1);
@@ -210,7 +324,7 @@ int main(int argc, char *argv[])
             char* path = request.request_uri;
             struct stat fstat;
             if (access(path, R_OK) || stat(path, &fstat)) {
-                respond(HTTP_NOT_FOUND);
+                respond(HTTP_NOT_FOUND, -1, new_fd);
                 shutdown(new_fd, SHUT_RDWR);
                 close(new_fd);
                 exit(1);
@@ -218,7 +332,7 @@ int main(int argc, char *argv[])
 
             int file_fd = open(path, O_RDONLY);
             size_t content_length = fstat.st_size;
-            size_t header_length = generate_header();
+            respond(HTTP_OK, content_length, new_fd);
 
             size_t bytes_to_send = content_length;
             do {
@@ -238,92 +352,4 @@ int main(int argc, char *argv[])
     }
 
     return 0;
-}
-
-int assign_struct_var(char *str_ptr, char *end_ptr, char *dest) {
-  end_ptr = strstr(str_ptr, " ");
-  if (end_ptr == NULL) {
-    fprintf(stderr, "[Error] Wrong Request Message(Method end).\n");
-    return -1;
-  }
-  *end_ptr = 0;
-  dest = strdup(str_ptr);
-  return 1;
-}
-
-// request_str -> struct http_request
-int parse_request_header(http_request *req, char *request_str) {
-  if (request_str == NULL || *request_str == 0) {
-    fprintf(stderr, "[Error] NULL Request.\n");
-    return -1;
-  }
-  char *request = strdup(request_str);
-  char *end_ptr;
-  int str_size;
-  char *header_ptr = strstr(request, "\r\n");
-  if (header_ptr == NULL) {
-    fprintf(stderr, "[Error] Wrong Request Format.\n");
-    return -1;
-  }
-  *header_ptr = 0;
-  header_ptr += 2;
-  // request-line
-  char *rl_ptr = request;
-  // Method
-  if (assign_struct_var(rl_ptr, end_ptr, req->method) == -1) {
-    return -1;
-  }
-  // Request-URI
-  rl_ptr = end_ptr + 1;
-  if (*rl_ptr == 0) {
-    fprintf(stderr, "[Error] Wrong Request Message(Request-URI start).\n");
-    return -1;
-  }
-  if (assign_struct_var(rl_ptr, end_ptr, req->request_uri) == -1) {
-    return -1;
-  }
-  // HTTP-Version
-  rl_ptr = end_ptr + 1;
-  if (*rl_ptr == 0) {
-    fprintf(stderr, "[Error] Wrong Request Message(HTTP-Version start).\n");
-    return -1;
-  }
-  if (assign_struct_var(rl_ptr, end_ptr, req->version) == -1) {
-    return -1;
-  }
-
-  // request_header
-  // if (header_ptr == NULL || *header_ptr == 0) {
-  //   fprintf(stderr, "[Error] Wrong Request Message(header).\n");
-  //   return -1;
-  // }
-  // char *header_end = strstr(header_ptr, "\r\n\r\n");
-  // if (header_end == NULL) {
-  //   fprintf(stderr, "[Error] Wrong Request Message(header end).\n");
-  //   return -1;
-  // }
-  // *header_end = '\0';
-
-
-  free(request);
-  return 1;
-}
-
-// http_response -> string
-size_t generate_response(char **response_str, http_response *rep) {
-  int cl_loc = strlen(rep->version) + 1 + strlen(rep->status) + 1 + strlen(rep->reason) + 2;
-  int length = cl_loc + 30 + 4;
-  char *response = malloc(length);
-  memset(response, 0, length);
-  strcat(response, rep->version);
-  strcat(response, " ");
-  strcat(response, rep->status);
-  strcat(response, " ");
-  strcat(response, rep->reason);
-  strcat(response, "\r\n");
-
-  sprintf(response + cl_loc, "Content-Length: %d", rep->cl);
-  strcat(response, "\r\n\r\n");
-  *response_str = response;
-  return strlen(response);
 }
