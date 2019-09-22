@@ -52,40 +52,26 @@ int recv_header(int sock_fd, char** response_header, char* buf, size_t* content_
         size_t newly_received = recv(sock_fd, buf, MAXDATASIZE - 1, 0);
         buf[newly_received] = 0;
         char* end = strstr(buf, "\r\n\r\n");
-        if (!end) { // not ended yet
-            bytes_received += newly_received;
-            if (bytes_received + 1 > response_length) {
-                while (bytes_received + 1 > response_length) {
-                    response_length *= 2;
-                }
-                char* new_addr = realloc(*response_header, response_length);
-                if (new_addr != NULL) {
-                    *response_header = new_addr;
-                } else {
-                    fprintf(stderr, "Error allocating buffer for header");
-                    return -1;
-                }
+		size_t to_copy = end ? end - buf + 4 : newly_received;
+        if (bytes_received + to_copy + 1 > response_length) {
+            do {
+				response_length *= 2;
+			} while (bytes_received + 1 > response_length);
+            char* new_addr = realloc(*response_header, response_length);
+            if (new_addr != NULL) {
+                *response_header = new_addr;
+            } else {
+                fprintf(stderr, "Error allocating buffer for header");
+                return -1;
             }
-            strcpy(*response_header, buf);
-        } else {
-            size_t remaining = end + 4 - buf;
-            if (bytes_received + remaining + 1 > response_length) {
-                while (bytes_received + remaining + 1 > response_length) {
-                    response_length *= 2;
-                }
-                char* new_addr = realloc(*response_header, response_length);
-                if (new_addr != NULL) {
-                    *response_header = new_addr;
-                } else {
-                    fprintf(stderr, "Error allocating buffer for header");
-                    return -1;
-                }
-            }
-            strncpy(*response_header, buf, remaining);
-            (*response_header)[remaining] = 0;
-            memmove(buf, buf + remaining, newly_received - remaining + 1);
-            buf[newly_received - remaining + 1] = 0;
-            break;
+        }
+        strncpy(*response_header, buf, to_copy);
+		(*response_header)[to_copy] = 0;
+		if (end) {
+			*content_received = newly_received - to_copy + 1;
+            memmove(buf, buf + to_copy, *content_received);
+            buf[*content_received] = 0;
+            return 0;
         }
     }
 }
@@ -207,7 +193,7 @@ int main(int argc, char *argv[])
 // check argc first please
 int build_request(http_request *req, char *input) {
 	if (strnstr(input, "http://", 7) != input) {
-		fprintf(stderr, "No Protocol Specify.\n", );
+		fprintf(stderr, "No Protocol Specify.\n");
 		return -1;
 	}
 	char *host_ptr = input + 7;
@@ -312,9 +298,9 @@ size_t generate_request(char **request_str, http_request *new_request) {
 
 size_t request_str_size(http_request *new_request) {
 	size_t retval = 0;
-	retval += strlen(req->method) + 1 + strlen(req->request_uri) + 1 + strlen(req->version) + 2 +
-						12 + strlen(req->ua) + 2 + 8 + strlen(req->accept) + 2 + 6 + strlen(req->host) + 1 +
-						strlen(req->port) + 2 + 22 + 4;
+	retval += strlen(new_request->method) + 1 + strlen(new_request->request_uri) + 1 + strlen(new_request->version) + 2 +
+						12 + strlen(new_request->ua) + 2 + 8 + strlen(new_request->accept) + 2 + 6 + strlen(new_request->host) + 1 +
+						strlen(new_request->port) + 2 + 22 + 4;
 	return retval;
 }
 
