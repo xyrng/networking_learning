@@ -9,6 +9,10 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
+#include <netdb.h>
+#include <fcntl.h>
+#include <sys/sendfile.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
@@ -16,9 +20,19 @@
 #include <signal.h>
 #include <pthread.h>
 
-#define PORT "3490"  // the port users will be connecting to
-
 #define BACKLOG 10	 // how many pending connections queue will hold
+#define MAX_BUFFER 1024
+
+typedef struct http_request {
+	char *method;					// req line
+	char *request_uri;		// req line
+	char *version;				// req line
+	char *ua;							// header
+	char *accept;					// header
+	char *host;						// header
+	char *port;
+	int keepalive;				// header
+} http_request;
 
 typedef struct http_status {
     const char* status_code;
@@ -43,7 +57,39 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-int main(void)
+int recv_header(int sock_fd, char** response_header, char* buf, size_t* content_received) {
+    size_t bytes_received = 0;
+    size_t response_length = 512;
+    *response_header = malloc(response_length);
+    while (1) {
+        size_t newly_received = recv(sock_fd, buf, MAX_BUFFER - 1, 0);
+        buf[newly_received] = 0;
+        char* end = strstr(buf, "\r\n\r\n");
+		size_t to_copy = end ? end - buf + 4 : newly_received;
+        if (bytes_received + to_copy + 1 > response_length) {
+            do {
+				response_length *= 2;
+			} while (bytes_received + 1 > response_length);
+            char* new_addr = realloc(*response_header, response_length);
+            if (new_addr != NULL) {
+                *response_header = new_addr;
+            } else {
+                fprintf(stderr, "Error allocating buffer for header");
+                return -1;
+            }
+        }
+        strncpy(*response_header, buf, to_copy);
+		(*response_header)[to_copy] = 0;
+		if (end) {
+			*content_received = newly_received - to_copy + 1;
+            memmove(buf, buf + to_copy, *content_received);
+            buf[*content_received] = 0;
+            return 0;
+        }
+    }
+}
+
+int main(int argc, char *argv[])
 {
     int sockfd, new_fd;  // listen on sock_fd, new connection on new_fd
     struct addrinfo hints, *servinfo, *p;
@@ -54,12 +100,17 @@ int main(void)
     char s[INET6_ADDRSTRLEN];
     int rv;
 
+    if (argc != 2) {
+        fprintf(stderr,"usage: ./server port\n");
+        exit(1);
+    }
+
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE; // use my IP
 
-    if ((rv = getaddrinfo(NULL, PORT, &hints, &servinfo)) != 0) {
+    if ((rv = getaddrinfo(NULL, argv[1], &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         return 1;
     }
@@ -109,7 +160,6 @@ int main(void)
 
     printf("server: waiting for connections...\n");
 
-    pthread_t threads[MAX_THREADS];
     while(1) {  // main accept() loop
         sin_size = sizeof their_addr;
         new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
@@ -129,11 +179,11 @@ int main(void)
             char* request_header = NULL;
             char buf[MAX_BUFFER] = 0;
             size_t content_received = 0;
-            http_request request = 0;
+            http_request request = {0};
             if (recv_header(sockfd, &request_header, &buf, &content_received) ||
                     parse_request_header(&request, request_header)) {
                 respond(HTTP_ERROR);
-                shutdown(new_fd, SHUTDOWN_RDWR);
+                shutdown(new_fd, SHUT_RDWR);
                 close(new_fd);
                 exit(1);
             }
@@ -142,7 +192,7 @@ int main(void)
             struct stat fstat;
             if (access(path, R_OK) || stat(path, &fstat)) {
                 respond(HTTP_NOT_FOUND);
-                shutdown(new_fd, SHUTDOWN_RDWR);
+                shutdown(new_fd, SHUT_RDWR);
                 close(new_fd);
                 exit(1);
             }
@@ -161,7 +211,7 @@ int main(void)
                 bytes_to_send -= bytes_sent;
             } while (bytes_to_send > 0);
             close(file_fd);
-            shutdown(new_fd, SHUTDOWN_RDWR);
+            shutdown(new_fd, SHUT_RDWR);
             close(new_fd);
             exit(0);
         }
