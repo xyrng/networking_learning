@@ -14,10 +14,19 @@
 #include <arpa/inet.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <pthread.h>
 
 #define PORT "3490"  // the port users will be connecting to
 
 #define BACKLOG 10	 // how many pending connections queue will hold
+
+typedef struct http_status {
+    const char* status_code;
+    const char* reason;
+} http_status;
+const http_status HTTP_ERROR = { "400", "Bad Request" };
+const http_status HTTP_OK = { "200", "OK" };
+const http_status HTTP_NOT_FOUND = { "404", "NOT FOUND" };
 
 void sigchld_handler(int s)
 {
@@ -100,6 +109,7 @@ int main(void)
 
 	printf("server: waiting for connections...\n");
 
+    pthread_t threads[MAX_THREADS];
 	while(1) {  // main accept() loop
 		sin_size = sizeof their_addr;
 		new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
@@ -115,8 +125,43 @@ int main(void)
 
 		if (!fork()) { // this is the child process
 			close(sockfd); // child doesn't need the listener
-			if (send(new_fd, "Hello, world!", 13, 0) == -1)
-				perror("send");
+
+            char* request_header = NULL;
+            char buf[MAX_BUFFER] = 0;
+            size_t content_received = 0;
+            http_request request = 0;
+            if (recv_header(sockfd, &request_header, &buf, &content_received) ||
+                    parse_request_header(&request, request_header)) {
+                respond(HTTP_ERROR);
+                shutdown(new_fd, SHUTDOWN_RDWR);
+                close(new_fd);
+                exit(1);
+            }
+
+            char* path = request.request_uri;
+            struct stat fstat;
+            if (access(path, R_OK) || stat(path, &fstat)) {
+                respond(HTTP_NOT_FOUND);
+                shutdown(new_fd, SHUTDOWN_RDWR);
+                close(new_fd);
+                exit(1);
+            }
+
+            int file_fd = open(path, O_RDONLY);
+            size_t content_length = fstat.st_size;
+            size_t header_length = generate_header();
+
+            size_t bytes_to_send = content_length;
+            do {
+                size_t bytes_sent = sendfile(new_fd, file_fd, 0, bytes_to_send);
+                if (bytes_sent == -1) {
+                    perror("Error transmitting file.");
+                    exit(1);
+                }
+                bytes_to_send -= bytes_sent;
+            } while (bytes_to_send > 0);
+            close(file_fd);
+            shutdown(new_fd, SHUTDOWN_RDWR);
 			close(new_fd);
 			exit(0);
 		}
