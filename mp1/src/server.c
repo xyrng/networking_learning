@@ -73,7 +73,7 @@ void respond(http_status status, size_t content_length, int new_fd) {
 }
 
 
-void sigchld_handler(int s)
+void sigchld_handler()
 {
     while(waitpid(-1, NULL, WNOHANG) > 0);
 }
@@ -91,43 +91,44 @@ void *get_in_addr(struct sockaddr *sa)
 int recv_header(int sock_fd, char** response_header, char* buf, size_t* content_received) {
     size_t bytes_received = 0;
     size_t response_length = 512;
-    *response_header = malloc(response_length);
+    *response_header = calloc(response_length, 1);
     while (1) {
         size_t newly_received = recv(sock_fd, buf, MAX_BUFFER - 1, 0);
-        buf[newly_received] = 0;
-        char* end = strstr(buf, "\r\n\r\n");
-		size_t to_copy = end ? end - buf + 4 : newly_received;
-        if (bytes_received + to_copy + 1 > response_length) {
+        buf[newly_received] = '\0';
+        if (bytes_received + newly_received + 1 > response_length) {
             do {
-				response_length *= 2;
-			} while (bytes_received + 1 > response_length);
+                response_length *= 2;
+            } while (bytes_received + newly_received + 1 > response_length);
             char* new_addr = realloc(*response_header, response_length);
             if (new_addr != NULL) {
                 *response_header = new_addr;
             } else {
-                fprintf(stderr, "Error allocating buffer for header");
+                fprintf(stderr, "Error allocating buffer for header.\n");
                 return -1;
             }
         }
-        strncpy(*response_header, buf, to_copy);
-		(*response_header)[to_copy] = 0;
-		if (end) {
-			*content_received = newly_received - to_copy + 1;
-            memmove(buf, buf + to_copy, *content_received);
-            buf[*content_received] = 0;
+        memcpy((*response_header) + bytes_received, buf, newly_received);
+        char* end = strstr(*response_header, "\r\n\r\n");
+        if (end) {
+            size_t header_length = end + 4 - *response_header;
+            *content_received =
+                bytes_received + newly_received - header_length;
+            memcpy(buf, end + 4, *content_received);
+            end[4] = 0;
             return 0;
         }
+        bytes_received += newly_received;
     }
 }
 
-int assign_struct_var(char *str_ptr, char *end_ptr, char *dest) {
-  end_ptr = strstr(str_ptr, " ");
-  if (end_ptr == NULL) {
+int assign_struct_var(char *str_ptr, char** end_ptr, char** dest) {
+  *end_ptr = strstr(str_ptr, " ");
+  if (*end_ptr == NULL) {
     fprintf(stderr, "[Error] Wrong Request Message(Method end).\n");
     return -1;
   }
-  *end_ptr = 0;
-  dest = strdup(str_ptr);
+  **end_ptr = 0;
+  *dest = strdup(str_ptr);
   return 0;
 }
 
@@ -149,7 +150,7 @@ int parse_request_header(http_request *req, char *request_str) {
   // request-line
   char *rl_ptr = request;
   // Method
-  if (assign_struct_var(rl_ptr, end_ptr, req->method)) {
+  if (assign_struct_var(rl_ptr, &end_ptr, &req->method)) {
     return -1;
   }
   // Request-URI
@@ -158,7 +159,7 @@ int parse_request_header(http_request *req, char *request_str) {
     fprintf(stderr, "[Error] Wrong Request Message(Request-URI start).\n");
     return -1;
   }
-  if (assign_struct_var(rl_ptr, end_ptr, req->request_uri) == -1) {
+  if (assign_struct_var(rl_ptr, &end_ptr, &req->request_uri) == -1) {
     return -1;
   }
   // HTTP-Version
@@ -167,7 +168,7 @@ int parse_request_header(http_request *req, char *request_str) {
     fprintf(stderr, "[Error] Wrong Request Message(HTTP-Version start).\n");
     return -1;
   }
-  if (assign_struct_var(rl_ptr, end_ptr, req->version) == -1) {
+  if (assign_struct_var(rl_ptr, &end_ptr, &req->version) == -1) {
     return -1;
   }
 
@@ -313,7 +314,7 @@ int main(int argc, char *argv[])
             char buf[MAX_BUFFER] = "";
             size_t content_received = 0;
             http_request request = {0};
-            if (recv_header(sockfd, &request_header, &buf, &content_received) ||
+            if (recv_header(sockfd, &request_header, buf, &content_received) ||
                     parse_request_header(&request, request_header)) {
                 respond(HTTP_ERROR, -1, new_fd);
                 shutdown(new_fd, SHUT_RDWR);
