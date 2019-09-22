@@ -46,18 +46,15 @@ void *get_in_addr(struct sockaddr *sa)
 
 int recv_header(int sock_fd, char** response_header, char* buf, size_t* content_received) {
     size_t bytes_received = 0;
-    size_t response_length = 128;
-    *response_header = malloc(response_length);
-    fprintf(stderr, "%d\n", __LINE__);
+    size_t response_length = 512;
+    *response_header = calloc(response_length, 1);
     while (1) {
         size_t newly_received = recv(sock_fd, buf, MAXDATASIZE - 1, 0);
         buf[newly_received] = '\0';
-        char* end = strstr(buf, "\r\n\r\n");
-        size_t to_copy = end ? end - buf + 4 : newly_received;
-        if (bytes_received + to_copy + 1 > response_length) {
+        if (bytes_received + newly_received + 1 > response_length) {
             do {
                 response_length *= 2;
-            } while (bytes_received + 1 > response_length);
+            } while (bytes_received + newly_received + 1 > response_length);
             char* new_addr = realloc(*response_header, response_length);
             if (new_addr != NULL) {
                 *response_header = new_addr;
@@ -66,14 +63,17 @@ int recv_header(int sock_fd, char** response_header, char* buf, size_t* content_
                 return -1;
             }
         }
-        strncpy(*response_header, buf, to_copy);
-        (*response_header)[to_copy] = 0;
+        memcpy((*response_header) + bytes_received, buf, newly_received);
+        char* end = strstr(*response_header, "\r\n\r\n");
         if (end) {
-            *content_received = newly_received - to_copy + 1;
-            memmove(buf, buf + to_copy, *content_received);
-            buf[*content_received] = 0;
+            size_t header_length = end + 4 - *response_header;
+            *content_received =
+                bytes_received + newly_received - header_length;
+            memcpy(buf, end + 4, *content_received);
+            end[4] = 0;
             return 0;
         }
+        bytes_received += newly_received;
     }
 }
 
@@ -85,7 +85,7 @@ int parse_response_header(const char *response_str, http_response *rep);
 int main(int argc, char *argv[])
 {
     int sockfd;
-    char buf[MAXDATASIZE] = "0";
+    char buf[MAXDATASIZE] = "";
     struct addrinfo hints, *servinfo, *p;
     int rv;
     char s[INET6_ADDRSTRLEN];
@@ -144,7 +144,6 @@ int main(int argc, char *argv[])
     // Send HTTP Request
     char* request_str = NULL;
     size_t request_length = generate_request(&request_str, &new_request);
-    printf("request\n%s\n", request_str);
 
     size_t bytes_sent = 0;
     do {
@@ -157,12 +156,8 @@ int main(int argc, char *argv[])
         }
         bytes_sent += newly_sent;
     } while (request_length > bytes_sent);
-    fprintf(stderr, "%d\n", __LINE__);
     free(request_str);
-    fprintf(stderr, "%d\n", __LINE__);
     free_request(&new_request);
-
-    shutdown(sockfd, SHUT_WR);
 
     char* response_header = NULL;
     size_t content_received = 0;
@@ -196,7 +191,7 @@ int main(int argc, char *argv[])
     }
     fclose(output);
 
-    shutdown(sockfd, SHUT_RD);
+    shutdown(sockfd, SHUT_RDWR);
     close(sockfd);
 
     return 0;
@@ -244,7 +239,7 @@ int build_request(http_request *req, char *input) {
         // port
         str_size = file_path - port_ptr - 1; // '/' - ':'
         port = malloc(str_size + 1);
-				memset(port, 0, str_size + 1);
+        memset(port, 0, str_size + 1);
         strncpy(port, port_ptr + 1, str_size);
         port[str_size] = '\0';
         if (atoi(port) > 65535) {
@@ -291,7 +286,7 @@ size_t request_str_size(http_request *new_request) {
 size_t generate_request(char **request_str, http_request *new_request) {
     size_t retval = request_str_size(new_request);
     char *request = malloc(retval + 1);
-		memset(request, 0, retval + 1);
+    memset(request, 0, retval + 1);
     // request line
     strcat(request, new_request->method);
     strcat(request, " ");
@@ -374,12 +369,12 @@ int parse_response_header(const char *response_str, http_response *rep) {
     }
 
     char *cl_ptr = strstr(str_ptr, "Content-Length: ");
-    if (!cl_ptr || !(end_ptr == strstr(cl_ptr, "\r\n"))) {
+    if (!cl_ptr || !(end_ptr = strstr(cl_ptr, "\r\n"))) {
         fprintf(stderr, "[Error] No Content-Length.\n");
         return -1;
     } else {
         char* guard;
-        rep->cl = strtol(cl_ptr, &guard, 10);
+        rep->cl = strtol(cl_ptr + strlen("Content-Length: "), &guard, 10);
         if (guard != end_ptr) {
             fprintf(stderr, "[Error] Error parsing content length.\n");
             return -1;
