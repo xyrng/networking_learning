@@ -1,6 +1,6 @@
 /*
-** client.c -- a stream socket client demo
-*/
+ ** client.c -- a stream socket client demo
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,10 +14,7 @@
 
 #include <arpa/inet.h>
 
-#define PORT "3490" // the port client will be connecting to
-
-#define MAXDATASIZE 100 // max number of bytes we can get at once
-
+#define MAXDATASIZE 1024 // max number of bytes we can get at once
 
 typedef struct http_request {
 	char *method;					// req line
@@ -27,7 +24,7 @@ typedef struct http_request {
 	char *accept;					// header
 	char *host;						// header
 	char *port;
-	bool keepalive;				// header
+	int keepalive;				// header
 } http_request;
 
 typedef struct http_response {
@@ -40,75 +37,171 @@ typedef struct http_response {
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa)
 {
-	if (sa->sa_family == AF_INET) {
-		return &(((struct sockaddr_in*)sa)->sin_addr);
-	}
+    if (sa->sa_family == AF_INET) {
+        return &(((struct sockaddr_in*)sa)->sin_addr);
+    }
 
-	return &(((struct sockaddr_in6*)sa)->sin6_addr);
+    return &(((struct sockaddr_in6*)sa)->sin6_addr);
+}
+
+int recv_header(int sock_fd, char** response_header, char* buf, size_t* content_received) {
+    size_t bytes_received = 0;
+    size_t response_length = 512;
+    *response_header = malloc(response_length);
+    while (1) {
+        size_t newly_received = recv(sock_fd, buf, MAXDATASIZE - 1, 0);
+        buf[newly_received] = 0;
+        char* end = strstr(buf, "\r\n\r\n");
+        if (!end) { // not ended yet
+            bytes_received += newly_received;
+            if (bytes_received + 1 > response_length) {
+                while (bytes_received + 1 > response_length) {
+                    response_length *= 2;
+                }
+                char* new_addr = realloc(*response_header, response_length);
+                if (new_addr != NULL) {
+                    *response_header = new_addr;
+                } else {
+                    fprintf(stderr, "Error allocating buffer for header");
+                    return -1;
+                }
+            }
+            strcpy(*response_header, buf);
+        } else {
+            size_t remaining = end + 4 - buf;
+            if (bytes_received + remaining + 1 > response_length) {
+                while (bytes_received + remaining + 1 > response_length) {
+                    response_length *= 2;
+                }
+                char* new_addr = realloc(*response_header, response_length);
+                if (new_addr != NULL) {
+                    *response_header = new_addr;
+                } else {
+                    fprintf(stderr, "Error allocating buffer for header");
+                    return -1;
+                }
+            }
+            strncpy(*response_header, buf, remaining);
+            (*response_header)[remaining] = 0;
+            memmove(buf, buf + remaining, newly_received - remaining + 1);
+            buf[newly_received - remaining + 1] = 0;
+            break;
+        }
+    }
 }
 
 int main(int argc, char *argv[])
 {
-	int sockfd, numbytes;
-	char buf[MAXDATASIZE];
-	struct addrinfo hints, *servinfo, *p;
-	int rv;
-	char s[INET6_ADDRSTRLEN];
+    int sockfd, numbytes;
+    char buf[MAXDATASIZE] = 0;
+    struct addrinfo hints, *servinfo, *p;
+    int rv;
+    char s[INET6_ADDRSTRLEN];
 
-	if (argc != 2) {
-	    fprintf(stderr,"usage: client hostname\n");
-	    exit(1);
-	}
+    if (argc != 2) {
+        fprintf(stderr,"usage: client hostname\n");
+        exit(1);
+    }
 
-	memset(&hints, 0, sizeof hints);
-	hints.ai_family = AF_UNSPEC;
-	hints.ai_socktype = SOCK_STREAM;
+    http_request new_request = {0};
+    if (build_request(&new_request, argv[1])) {
+        fprintf(stderr, "Error parsing request.\n");
+        exit(1);
+    }
 
-	if ((rv = getaddrinfo(argv[1], PORT, &hints, &servinfo)) != 0) {
-		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-		return 1;
-	}
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
 
-	// loop through all the results and connect to the first we can
-	for(p = servinfo; p != NULL; p = p->ai_next) {
-		if ((sockfd = socket(p->ai_family, p->ai_socktype,
-				p->ai_protocol)) == -1) {
-			perror("client: socket");
-			continue;
-		}
+    char* host = new_request.host;
+    char* port = new_request.port;
+    if ((rv = getaddrinfo(host, port, &hints, &servinfo)) != 0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+        return 1;
+    }
 
-		if (connect(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
-			close(sockfd);
-			perror("client: connect");
-			continue;
-		}
+    // loop through all the results and connect to the first we can
+    for(p = servinfo; p != NULL; p = p->ai_next) {
+        if ((sockfd = socket(p->ai_family, p->ai_socktype,
+                        p->ai_protocol)) == -1) {
+            perror("client: socket");
+            continue;
+        }
 
-		break;
-	}
+        if (connect(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
+            close(sockfd);
+            perror("client: connect");
+            continue;
+        }
 
-	if (p == NULL) {
-		fprintf(stderr, "client: failed to connect\n");
-		return 2;
-	}
+        break;
+    }
 
-	inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr),
-			s, sizeof s);
-	printf("client: connecting to %s\n", s);
+    if (p == NULL) {
+        fprintf(stderr, "client: failed to connect\n");
+        return 2;
+    }
 
-	freeaddrinfo(servinfo); // all done with this structure
+    inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr),
+            s, sizeof s);
+    printf("client: connecting to %s\n", s);
 
-	if ((numbytes = recv(sockfd, buf, MAXDATASIZE-1, 0)) == -1) {
-	    perror("recv");
-	    exit(1);
-	}
+    freeaddrinfo(servinfo); // all done with this structure
 
-	buf[numbytes] = '\0';
+    // Send HTTP Request
+    char* request_str = NULL;
+    size_t request_length = generate_request(&request_str, &new_request);
 
-	printf("client: received '%s'\n",buf);
+    size_t bytes_sent = 0;
+    do {
+        size_t newly_sent = send(sockfd, request_str + bytes_sent,
+                request_length - bytes_sent, 0);
+        if (newly_sent == -1) {
+            fprintf(stderr, "Error sending request.\n");
+            close(sockfd);
+            exit(1);
+        }
+        bytes_sent += newly_sent;
+    } while (request_length > bytes_sent);
 
-	close(sockfd);
+    shutdown(sockfd, SHUT_WR);
 
-	return 0;
+    char* response_header = NULL;
+    size_t content_received = 0;
+    if (recv_header(sockfd, &response_header, buf, &content_received)) {
+        fprint(stderr, "Error parsing header.\n");
+        close(sockfd);
+        exit(1);
+    }
+
+    http_response response = {0};
+    if (parse_response_header(&response, response_header)) {
+        fprintf(stderr, "Error parsing response");
+        exit(1);
+    }
+
+    size_t content_length = response.content_length;
+    FILE* output = fopen("output", "w");
+    if (content_received != 0) {
+        fwrite(buf, 1, content_received, output);
+    }
+
+    while (content_length > content_received) {
+        size_t newly_received = recv(sockfd, buf, MAXDATASIZE, 0);
+        if (newly_received == -1) {
+            perror("Receving file error");
+            close(sockfd);
+            exit(1);
+        }
+        fwrite(buf, 1, newly_received, output);
+        content_received += newly_received;
+    }
+    fclose(output);
+
+    shutdown(sockfd, SHUT_RD);
+    close(sockfd);
+
+    return 0;
 }
 
 // check argc first please
@@ -192,23 +285,23 @@ size_t generate_request(char **request_str, http_request *new_request) {
 	size_t retval = request_str_size(new_request);
 	char *request = malloc(retval + 1);
 	// request line
-	strcat(request_str, req->method);
+	strcat(request_str, new_request->method);
 	strcat(request_str, " ");
-	strcat(request_str, req->request_uri);
+	strcat(request_str, new_request->request_uri);
 	strcat(request_str, " ");
-	strcat(request_str, req->version);
+	strcat(request_str, new_request->version);
 	strcat(request_str, "\r\n");
 	// header
 	strcat(request_str, "User-Agent: ");
-	strcat(request_str, req->ua);
+	strcat(request_str, new_request->ua);
 	strcat(request_str, "\r\n");
 	strcat(request_str, "Host: ");
-	strcat(request_str, req->host);
+	strcat(request_str, new_request->host);
 	strcat(request_str, ":");
-	strcat(request_str, req->port);
+	strcat(request_str, new_request->port);
 	strcat(request_str, "\r\n");
 	strcat(request_str, "Accept: ");
-	strcat(request_str, req->accept);
+	strcat(request_str, new_request->accept);
 	strcat(request_str, "\r\n");
 	strcat(request_str, "Connection: Keep-Alive");
 	strcat(request_str, "\r\n");
