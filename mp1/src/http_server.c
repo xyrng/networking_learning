@@ -23,7 +23,7 @@
 #define BACKLOG 10	 // how many pending connections queue will hold
 #define MAX_BUFFER 1024
 
-#define DEBUG 1
+#define DEBUG 0
 void log_line(int n) {
     if (DEBUG) {
         fprintf(stderr, "Passed line %d\n", n);
@@ -315,8 +315,8 @@ int main(int argc, char *argv[])
                 s, sizeof s);
         printf("server: got connection from %s\n", s);
 
-        // if (!fork()) { // this is the child process
-            //close(sockfd); // child doesn't need the listener
+        if (!fork()) { // this is the child process
+            close(sockfd); // child doesn't need the listener
 
             char* request_header = NULL;
             char buf[MAX_BUFFER] = "";
@@ -359,9 +359,9 @@ int main(int argc, char *argv[])
             close(file_fd);
             shutdown(new_fd, SHUT_RDWR);
             close(new_fd);
-            //exit(0);
-        //}
-        //close(new_fd);  // parent doesn't need this
+            exit(0);
+        }
+        close(new_fd);  // parent doesn't need this
     }
 
     return 0;

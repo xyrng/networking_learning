@@ -17,7 +17,7 @@
 
 #define MAXDATASIZE 1024 // max number of bytes we can get at once
 
-#define DEBUG 1
+#define DEBUG 0
 void log_line(int n) {
     if (DEBUG) {
         fprintf(stderr, "Passed line %d\n", n);
