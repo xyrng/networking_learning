@@ -2,6 +2,7 @@
  ** client.c -- a stream socket client demo
  */
 
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -15,6 +16,13 @@
 #include <arpa/inet.h>
 
 #define MAXDATASIZE 1024 // max number of bytes we can get at once
+
+#define DEBUG 1
+void log_line(int n) {
+    if (DEBUG) {
+        fprintf(stderr, "Passed line %d\n", n);
+    }
+}
 
 typedef struct http_request {
     char *method;					// req line
@@ -47,33 +55,46 @@ void *get_in_addr(struct sockaddr *sa)
 int recv_header(int sock_fd, char** response_header, char* buf, size_t* content_received) {
     size_t bytes_received = 0;
     size_t response_length = 512;
-    *response_header = calloc(response_length, 1);
+    char *response_buf = calloc(response_length, 1);
+    log_line(__LINE__);
     while (1) {
         size_t newly_received = recv(sock_fd, buf, MAXDATASIZE - 1, 0);
+        if (newly_received == -1) {
+            perror("[Error] Receving Header: ");
+            free(response_buf);
+            return -1;
+        }
         buf[newly_received] = '\0';
         if (bytes_received + newly_received + 1 > response_length) {
             do {
                 response_length *= 2;
             } while (bytes_received + newly_received + 1 > response_length);
-            char* new_addr = realloc(*response_header, response_length);
+            char* new_addr = realloc(response_buf, response_length);
             if (new_addr != NULL) {
-                *response_header = new_addr;
+                response_buf = new_addr;
             } else {
                 fprintf(stderr, "Error allocating buffer for header.\n");
+                free(response_buf);
                 return -1;
             }
         }
-        memcpy((*response_header) + bytes_received, buf, newly_received);
-        char* end = strstr(*response_header, "\r\n\r\n");
+        log_line(__LINE__);
+        memcpy(response_buf + bytes_received, buf, newly_received);
+        log_line(__LINE__);
+        bytes_received += newly_received;
+        response_buf[bytes_received] = '\0';
+        fprintf(stderr, "%s\n", response_buf);
+        char* end = strstr(response_buf, "\r\n\r\n");
         if (end) {
-            size_t header_length = end + 4 - *response_header;
+            size_t header_length = end + 4 - response_buf;
             *content_received =
-                bytes_received + newly_received - header_length;
+                bytes_received - header_length;
             memcpy(buf, end + 4, *content_received);
             end[4] = 0;
+            *response_header = response_buf;
             return 0;
         }
-        bytes_received += newly_received;
+        log_line(__LINE__);
     }
 }
 
@@ -95,11 +116,13 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
+    log_line(__LINE__);
     http_request new_request = {0};
     if (build_request(&new_request, argv[1])) {
         fprintf(stderr, "Error parsing request.\n");
         exit(1);
     }
+    log_line(__LINE__);
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
@@ -144,6 +167,7 @@ int main(int argc, char *argv[])
     // Send HTTP Request
     char* request_str = NULL;
     size_t request_length = generate_request(&request_str, &new_request);
+    log_line(__LINE__);
 
     size_t bytes_sent = 0;
     do {
@@ -159,6 +183,7 @@ int main(int argc, char *argv[])
     free(request_str);
     free_request(&new_request);
 
+    log_line(__LINE__);
     char* response_header = NULL;
     size_t content_received = 0;
     if (recv_header(sockfd, &response_header, buf, &content_received)) {
@@ -167,6 +192,7 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
+    log_line(__LINE__);
     http_response response = {0};
     if (parse_response_header(response_header, &response)) {
         fprintf(stderr, "Error parsing response.\n");
@@ -197,63 +223,81 @@ int main(int argc, char *argv[])
     return 0;
 }
 
+char* slice(char* start, char* end) {
+    size_t len = end - start;
+    char* buf = malloc(len + 1);
+    memcpy(buf, start, len);
+    buf[len] = '\0';
+    return buf;
+}
+
 // check argc first please
 int build_request(http_request *req, char *input) {
-    if (strstr(input, "http://") != input) {
-        fprintf(stderr, "No Protocol Specify.\n");
+    const char* protocol = "http://";
+    size_t protocol_len = strlen(protocol);
+    if (strncmp(input, protocol, protocol_len)) {
+        fprintf(stderr, "Not an http protocol.\n");
         return -1;
     }
-    char *host_ptr = input + 7;
-    char *port_ptr = strchr(host_ptr, ':');
-    char *file_path_ptr = strstr(host_ptr, "/");
-    char *end_ptr;
-    int str_size;
+    char *host_ptr = input + protocol_len;
+    char *port_ptr = strchrnul(host_ptr, ':');
+    char *path_ptr = strchrnul(host_ptr, '/');
+    char *end_ptr = host_ptr + strlen(host_ptr);
 
-    // parse file_path, host and port
-    // port <= 65535
-    char *file_path;
-    char *host;
-    char *port;
-    if (file_path_ptr == NULL) { // no file_path
-        file_path = strdup("/");
-        file_path_ptr = strchr(host_ptr, '\0');
-    } else {
-        file_path = strdup(file_path_ptr);
-        end_ptr = strchr(file_path_ptr, '\0');
-        str_size = end_ptr - file_path_ptr;
-    }
-
-    // parse host and port
-    if (port_ptr == NULL) { // http://127.0.0.1/index.html
-        port = strdup("80");
-        str_size = file_path_ptr - host_ptr;
-        host = malloc(str_size + 1);
-        memcpy(host, host_ptr, str_size);
-        host[str_size] = 0;
-    } else if (port_ptr < file_path_ptr) {
-        // host
-        str_size = port_ptr - host_ptr; // ':' - '[a-z]'
-        host = malloc(str_size + 1);
-        memcpy(host, host_ptr, str_size);
-        host[str_size] = 0;
-        // port
-        str_size = file_path - port_ptr - 1; // '/' - ':'
-        port = malloc(str_size + 1);
-        memset(port, 0, str_size + 1);
-        strncpy(port, port_ptr + 1, str_size);
-        port[str_size] = '\0';
-        if (atoi(port) > 65535) {
-            fprintf(stderr, "[Error] Wrong Port Number! It should be less than 65536.\n");
-            return -1;
-        }
-    } else {
+    if (port_ptr != end_ptr && port_ptr >= path_ptr) {
         fprintf(stderr, "[Error] File path cannot contain `column` signal.\n");
         return -1;
+    } // else port_ptr == end_ptr || port_ptr < path_ptr
+
+    // port <= 65535
+    char *host;
+    char *port;
+    char *path;
+
+    if (path_ptr == end_ptr) { // At the end
+        path = strdup("/");
+    } else {
+        path = strdup(path_ptr);
     }
+
+    // parse port
+    if (port_ptr == end_ptr) { // Only if both missing
+        host = slice(host_ptr, path_ptr);
+        port = strdup("80");
+    } else { // host:port/path or host:port or host:port/
+        host = slice(host_ptr, port_ptr);
+        port = slice(port_ptr + 1, path_ptr);
+        int p = atoi(port);
+        if (p > 65536 || 6 < 0) {
+            fprintf(stderr, "[Error] Invalid Port Number.\n");
+            return -1;
+        }
+    }
+
+    // if (port_ptr < path_ptr) {
+    //     // host
+    //     str_size = port_ptr - host_ptr; // ':' - '[a-z]'
+    //     host = malloc(str_size + 1);
+    //     memcpy(host, host_ptr, str_size);
+    //     host[str_size] = 0;
+    //     // port
+    //     str_size = path - port_ptr - 1; // '/' - ':'
+    //     port = malloc(str_size + 1);
+    //     memset(port, 0, str_size + 1);
+    //     strncpy(port, port_ptr + 1, str_size);
+    //     port[str_size] = '\0';
+    //     if (atoi(port) > 65535) {
+    //         fprintf(stderr, "[Error] Wrong Port Number! It should be less than 65536.\n");
+    //         return -1;
+    //     }
+    // } else {
+    //     fprintf(stderr, "[Error] File path cannot contain `column` signal.\n");
+    //     return -1;
+    // }
 
     // initialize and assign the request
     req->method = strdup("GET");
-    req->request_uri = file_path;
+    req->request_uri = path;
     req->version = strdup("HTTP/1.1");
     req->ua = strdup("Wget/1.12 (linux-gnu)");
     req->accept = strdup("*/*");

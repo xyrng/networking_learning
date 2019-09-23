@@ -23,6 +23,13 @@
 #define BACKLOG 10	 // how many pending connections queue will hold
 #define MAX_BUFFER 1024
 
+#define DEBUG 1
+void log_line(int n) {
+    if (DEBUG) {
+        fprintf(stderr, "Passed line %d\n", n);
+    }
+}
+
 typedef struct http_request {
 	char *method;					// req line
 	char *request_uri;		// req line
@@ -53,15 +60,15 @@ const http_status HTTP_NOT_FOUND = { "404", "NOT FOUND" };
 size_t generate_response(char **response_str, http_response *rep);
 
 void respond(http_status status, size_t content_length, int new_fd) {
-	http_response *new_rep = malloc(sizeof(http_response));
-	new_rep->version = strdup("HTTP/1.1");
-	new_rep->status = strdup(status.status_code);
-	new_rep->reason = strdup(status.reason);
+	http_response new_rep = {0};
+	new_rep.version = strdup("HTTP/1.1");
+	new_rep.status = strdup(status.status_code);
+	new_rep.reason = strdup(status.reason);
 	if (content_length != -1) {
-		new_rep->cl = content_length;
+		new_rep.cl = content_length;
 	}
 	char *response_str;
-	size_t bytes_to_send = generate_response(&response_str, new_rep);
+	size_t bytes_to_send = generate_response(&response_str, &new_rep);
 	do {
 			size_t bytes_sent = send(new_fd, response_str, bytes_to_send, 0);
 			if (bytes_sent == -1) {
@@ -91,44 +98,55 @@ void *get_in_addr(struct sockaddr *sa)
 int recv_header(int sock_fd, char** response_header, char* buf, size_t* content_received) {
     size_t bytes_received = 0;
     size_t response_length = 512;
-    *response_header = calloc(response_length, 1);
+    char *response_buf = calloc(response_length, 1);
+    log_line(__LINE__);
     while (1) {
         size_t newly_received = recv(sock_fd, buf, MAX_BUFFER - 1, 0);
+        if (newly_received == -1) {
+            perror("[Error] Receving Header: ");
+            free(response_buf);
+            return -1;
+        }
         buf[newly_received] = '\0';
         if (bytes_received + newly_received + 1 > response_length) {
             do {
                 response_length *= 2;
             } while (bytes_received + newly_received + 1 > response_length);
-            char* new_addr = realloc(*response_header, response_length);
+            char* new_addr = realloc(response_buf, response_length);
             if (new_addr != NULL) {
-                *response_header = new_addr;
+                response_buf = new_addr;
             } else {
                 fprintf(stderr, "Error allocating buffer for header.\n");
+                free(response_buf);
                 return -1;
             }
         }
-        memcpy((*response_header) + bytes_received, buf, newly_received);
-        char* end = strstr(*response_header, "\r\n\r\n");
+        log_line(__LINE__);
+        memcpy(response_buf + bytes_received, buf, newly_received);
+        log_line(__LINE__);
+        bytes_received += newly_received;
+        response_buf[bytes_received] = '\0';
+        char* end = strstr(response_buf, "\r\n\r\n");
         if (end) {
-            size_t header_length = end + 4 - *response_header;
+            size_t header_length = end + 4 - response_buf;
             *content_received =
-                bytes_received + newly_received - header_length;
+                bytes_received - header_length;
             memcpy(buf, end + 4, *content_received);
             end[4] = 0;
+            *response_header = response_buf;
             return 0;
         }
-        bytes_received += newly_received;
+        log_line(__LINE__);
     }
 }
 
 int assign_struct_var(char *str_ptr, char** end_ptr, char** dest) {
-  *end_ptr = strstr(str_ptr, " ");
+  *end_ptr = strtok(str_ptr, " ");
   if (*end_ptr == NULL) {
     fprintf(stderr, "[Error] Wrong Request Message(Method end).\n");
     return -1;
   }
-  **end_ptr = 0;
-  *dest = strdup(str_ptr);
+  *dest = strdup(*end_ptr);
   return 0;
 }
 
@@ -154,21 +172,11 @@ int parse_request_header(http_request *req, char *request_str) {
     return -1;
   }
   // Request-URI
-  rl_ptr = end_ptr + 1;
-  if (*rl_ptr == 0) {
-    fprintf(stderr, "[Error] Wrong Request Message(Request-URI start).\n");
-    return -1;
-  }
-  if (assign_struct_var(rl_ptr, &end_ptr, &req->request_uri) == -1) {
+  if (assign_struct_var(NULL, &end_ptr, &req->request_uri)) {
     return -1;
   }
   // HTTP-Version
-  rl_ptr = end_ptr + 1;
-  if (*rl_ptr == 0) {
-    fprintf(stderr, "[Error] Wrong Request Message(HTTP-Version start).\n");
-    return -1;
-  }
-  if (assign_struct_var(rl_ptr, &end_ptr, &req->version) == -1) {
+  if (assign_struct_var(NULL, &end_ptr, &req->version)) {
     return -1;
   }
 
@@ -186,7 +194,7 @@ int parse_request_header(http_request *req, char *request_str) {
 
 
   free(request);
-  return 1;
+  return 0;
 }
 
 // http_response -> string
@@ -307,30 +315,34 @@ int main(int argc, char *argv[])
                 s, sizeof s);
         printf("server: got connection from %s\n", s);
 
-        if (!fork()) { // this is the child process
-            close(sockfd); // child doesn't need the listener
+        // if (!fork()) { // this is the child process
+            //close(sockfd); // child doesn't need the listener
 
             char* request_header = NULL;
             char buf[MAX_BUFFER] = "";
             size_t content_received = 0;
             http_request request = {0};
-            if (recv_header(sockfd, &request_header, buf, &content_received) ||
+            if (recv_header(new_fd, &request_header, buf, &content_received) ||
                     parse_request_header(&request, request_header)) {
+                log_line(__LINE__);
                 respond(HTTP_ERROR, -1, new_fd);
                 shutdown(new_fd, SHUT_RDWR);
                 close(new_fd);
                 exit(1);
             }
 
-            char* path = request.request_uri;
+            char* path = request.request_uri + 1;
             struct stat fstat;
+            log_line(__LINE__);
             if (access(path, R_OK) || stat(path, &fstat)) {
+                log_line(__LINE__);
                 respond(HTTP_NOT_FOUND, -1, new_fd);
                 shutdown(new_fd, SHUT_RDWR);
                 close(new_fd);
                 exit(1);
             }
 
+            log_line(__LINE__);
             int file_fd = open(path, O_RDONLY);
             size_t content_length = fstat.st_size;
             respond(HTTP_OK, content_length, new_fd);
@@ -347,9 +359,9 @@ int main(int argc, char *argv[])
             close(file_fd);
             shutdown(new_fd, SHUT_RDWR);
             close(new_fd);
-            exit(0);
-        }
-        close(new_fd);  // parent doesn't need this
+            //exit(0);
+        //}
+        //close(new_fd);  // parent doesn't need this
     }
 
     return 0;
