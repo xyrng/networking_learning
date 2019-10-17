@@ -1,6 +1,6 @@
-/* 
+/*
  * File:   receiver_main.c
- * Author: 
+ * Author:
  *
  * Created on
  */
@@ -15,6 +15,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <adt.h>
 
 
 
@@ -26,10 +27,14 @@ void diep(char *s) {
     exit(1);
 }
 
+// data should be on the heap
+void parse_packet(char* buff, rdt_packet* packet, ssize_t size) {
+
+}
 
 
 void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
-    
+
     slen = sizeof (si_other);
 
 
@@ -45,15 +50,41 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
         diep("bind");
 
 
-	/* Now receive data and send acknowledgements */    
+	/* Now receive data and send acknowledgements */
+    // receive from socket
 
+    char buffer[4096];
+    uint32_t ack_num = 0;
+    uint32_t last_payload = 0;
+    FILE *fd = fopen(destinationFile, 'a');
+    do {
+        ssize_t size = read(s, &buffer, 4096);
+        rdt_packet *packet;
+        parse_packet(&buffer, packet, size);
+        // get seq num
+        if (packet->seq_num == last_seq_num + last_payload) {
+            // append write to file
+            do () {
+                fwrite();
+            } while();
+            // send ack_num
+            last_payload = (uint32_t) packet->payload;
+            ack_num = packet->seq_num + last_payload;
+
+        } else {
+            // mem_map to buffer
+            // send dupc_ack_num
+        }
+    } while(1)
+
+    fclose(fp);
     close(s);
 	printf("%s received.", destinationFile);
     return;
 }
 
 /*
- * 
+ *
  */
 int main(int argc, char** argv) {
 
@@ -68,4 +99,3 @@ int main(int argc, char** argv) {
 
     reliablyReceive(udpPort, argv[2]);
 }
-
