@@ -5,7 +5,5 @@
  */
 #pragma once
 
-#define PACKET_LENGTH 1024
+#define MAX_PAYLOAD_LEN 1024
 #define WINDOW 4096
-
-#define 

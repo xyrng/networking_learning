@@ -1,10 +1,9 @@
-/* 
+/*
  * File:   receiver_main.c
- * Author: 
+ * Author: nonsense
  *
- * Created on
+ * Created on Oct 6, 2019
  */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,7 +14,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <pthread.h>
-
+#include "constants.h"
 
 
 struct sockaddr_in si_me, si_other;
@@ -29,7 +28,6 @@ void diep(char *s) {
 
 
 void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
-    
     slen = sizeof (si_other);
 
 
@@ -45,15 +43,18 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
         diep("bind");
 
 
-	/* Now receive data and send acknowledgements */    
+    /* Now receive data and send acknowledgements */
+    while (1) {
+
+    }
 
     close(s);
-	printf("%s received.", destinationFile);
+    printf("%s received.", destinationFile);
     return;
 }
 
 /*
- * 
+ *
  */
 int main(int argc, char** argv) {
 
