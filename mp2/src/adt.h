@@ -88,3 +88,19 @@ typedef struct ack_packet {
     uint32_t ack_num;
     char     fin_byte;
 } ack_packet;
+
+typedef struct rdt_packet {
+    uint32_t  seq_num;
+    uint32_t  ack_num;
+    uint16_t  payload;              //data size
+    char      fin_byte;
+    char      data[1024];
+} rdt_packet;
+
+typedef struct rqueue {
+    rdt_packet    buffer[WINDOW];
+    size_t        buflen[WINDOW];      // length of each packet
+    size_t        start = 0;
+    size_t        end = 0;
+    size_t        length = 0;          // queue length
+} receiverQ;
