@@ -5,6 +5,8 @@
  */
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
+#include <error.h>
 #include <time.h>
 #include <sys/timerfd.h>
 #include "adt.h"
@@ -147,7 +149,7 @@ int initSenderStat(SenderStat* stat, size_t totalBytes) {
     stat->retrans = FALSE;
     stat->recvFin = FALSE;
     initCwnd(&stat->cwnd);
-    return stat->timerfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
+    return initTimer(&stat->timer);
 }
 
 int allowSend(SenderStat* stat) {
@@ -167,4 +169,50 @@ uint32_t updateNextSeq(SenderStat* stat, uint32_t lastSent) {
         stat->highestSeq = lastSent;
     }
     return getNextSeq(stat);
+}
+
+uint64_t drain(int timerfd) {
+    uint64_t round = 0;
+    while (read(timerfd, &round, 8) == -1) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return round;
+        }
+        else if (errno != EINTR) {
+            diep("read timerfd");
+        }
+    }
+    return round;
+}
+
+int initTimer(Timer* timer) {
+    timer->fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
+    timer->running = FALSE;
+}
+
+void startTimerIfNotRunning(Timer *timer, const struct itimerspec* const spec) {
+    if (!timer->running) {
+        if (timerfd_settime(timer->fd, 0, spec, NULL)) {
+            diep("Start timer");
+        }
+        timer->running = TRUE;
+    }
+}
+
+void startTimer(Timer* timer, const struct itimerspec* const spec) {
+    drain(timer->fd);
+    if (timerfd_settime(timer->fd, 0, spec, NULL)) {
+        diep("Start timer");
+    }
+    timer->running = TRUE;
+}
+
+void stopTimer(Timer* timer) {
+    static const struct itimerspec zero = {0};
+    if (timer->running != 0) {
+        uint64_t r = drain(timer->fd);
+        if (timerfd_settime(timer->fd, 0, &zero, NULL)) {
+            diep("Stop timer");
+        }
+        timer->running = FALSE;
+    }
 }
