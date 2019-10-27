@@ -10,32 +10,38 @@
 #include <stdint.h>
 #include "constants.h"
 
-typedef struct CongestState {
+typedef struct CongestionState CState;
+typedef struct CongestionWindow Cwnd;
+
+struct CongestionState {
     char state;
     void (*ack)(Cwnd*, uint32_t);
     void (*dupAck)(Cwnd*);
-} CState;
+};
 
-typedef struct CongestionWindow {
+struct CongestionWindow {
     size_t window;
+    size_t priorWindow;
     size_t ackThisRound; // Used only in Congestion Avoidance
     size_t ssthresh;
-    size_t lastAck;
-    size_t dupAck;
+    uint32_t timeoutAck;
+    uint32_t lastAck;
+    int dupAck;
     CState state;
-} Cwnd;
+};
 
 void initCwnd(Cwnd* cwnd);
 void ackCwnd(Cwnd* cwnd, uint32_t ackNum);
 int confirmThreeDups(Cwnd* cwnd);
-void timeoutCwnd(Cwnd* cwnd);
-size_t getCwnd(Cwnd* cwnd);
+void timeoutCwnd(Cwnd* cwnd, uint32_t ack);
 
 typedef struct statistics {
     Cwnd cwnd;
-    size_t totalSeq;
-    size_t sendBase;
-    size_t nextSeq;
+    uint32_t totalSeq;
+    uint32_t sendBase;
+    uint32_t lastSent;
+    uint32_t highestSeq;
+    uint16_t lastChunk;
     int timerfd;
     char retrans;
     char recvFin;
@@ -46,37 +52,10 @@ typedef struct diffStatistics {
     char threeDups;
 } DiffStat;
 
-int isCwndFull(SenderStat* stat);
+int allowSend(SenderStat* stat);
 int initSenderStat(SenderStat* stat, size_t totalBytes);
-
-typedef struct timedSlot {
-    char* chunk;
-    uint16_t length;
-    int timed;
-    struct timespec timestamp;
-} timedSlot;
-
-int start(timedSlot* slot);
-double getLapse(timedSlot* slot, struct timespec now);
-void finish(timedSlot* slot);
-int isFinished(timedSlot* slot);
-
-typedef struct slot {
-    char* chunk;
-    uint16_t length;
-} Slot;
-
-typedef struct queue {
-    Slot slots[WINDOW];
-    size_t start;
-    size_t end;
-    size_t length;
-} SenderQ;
-
-void initSenderQ(SenderQ* q);
-int isQFull(SenderQ* q);
-size_t buffer(SenderQ* q, const char** const bufferPtr, const size_t toBuffer);
-int sweep(SenderQ* q);
+uint32_t getNextSeq(SenderStat* stat);
+uint32_t updateNextSeq(SenderStat* stat, uint32_t next);
 
 typedef struct Summary {
     int threeDup;
@@ -100,7 +79,7 @@ typedef struct rdt_packet {
 typedef struct rqueue {
     rdt_packet    buffer[WINDOW];
     size_t        buflen[WINDOW];      // length of each packet
-    size_t        start = 0;
-    size_t        end = 0;
-    size_t        length = 0;          // queue length
+    size_t        start;
+    size_t        end;
+    size_t        length;
 } receiverQ;

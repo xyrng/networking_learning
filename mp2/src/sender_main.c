@@ -20,6 +20,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
+#include <sys/timerfd.h>
 #include <unistd.h>
 #include "constants.h"
 #include "adt.h"
@@ -30,6 +31,7 @@ struct sockaddr_in si_other;
 int s, slen;
 
 const struct itimerspec defaultSpec = {{0}, {0, 20000000}}; // 20 ms RTT
+const struct itimerspec zero = {0};
 
 void diep(char *s) {
     perror(s);
@@ -78,21 +80,21 @@ int initEpollPool(int sockfd, uint32_t sockEvent, int timerfd) {
 int recvAll(int sockfd, ack_packet* const pkts) {
     struct sockaddr_storage addr_container = {0};
     socklen_t addr_len = sizeof addr_container;
-    struct sockaddr* their_addr = &addr_container;
+    struct sockaddr* their_addr = (struct sockaddr *) &addr_container;
     size_t pkt_len = sizeof(ack_packet);
 
     for (ack_packet* it = pkts, *end = pkts + WINDOW; it < end; ++it) {
-        size_t numbytes;
-        while ((numbytes = recvfrom(sockfd, it, pkt_len, 0, 
-                their_addr, &addr_len)) == -1) {
+        ssize_t numbytes;
+        while ((numbytes = recvfrom(sockfd, it, pkt_len, 0,
+                        their_addr, &addr_len)) == -1) {
             if (errno == EINTR) {
                 continue;
-            } else if (errno == EWOULDBLOCK | EAGAIN) {
+            } else if (errno == EWOULDBLOCK || errno == EAGAIN) {
                 return it - pkts;
             }
             diep("recvfrom");
         }
-        struct sockaddr_in* cast = their_addr;
+        struct sockaddr_in* cast = (struct sockaddr_in *) their_addr;
         if (numbytes != pkt_len) {
             warn("Ack corrupted");
             --it;
@@ -117,6 +119,20 @@ uint64_t drain(int timerfd) {
     return round;
 }
 
+void startTimer(int timerfd) {
+    drain(timerfd);
+    if (timerfd_settime(timerfd, 0, &defaultSpec, NULL)) {
+        diep("Start timer");
+    }
+}
+
+void stopTimer(int timerfd) {
+    drain(timerfd);
+    if (timerfd_settime(timerfd, 0, &zero, NULL)) {
+        diep("Stop timer");
+    }
+}
+
 void ackAll(ack_packet* pkts, size_t len, SenderStat* const currStat, DiffStat* const pending) {
     pending->sendBase = currStat->sendBase;
     for (ack_packet* it = pkts, *end = pkts + len; it < end; ++it) {
@@ -137,23 +153,48 @@ void merge(SenderStat* const stat, const DiffStat* const pending, int hasTimeout
     stat->retrans = pending->threeDups;
     if (stat->sendBase < pending->sendBase) { // Advanced, ignore old timer
         stat->sendBase = pending->sendBase;
-        if (!stat->retrans) { 
-            if (stat->sendBase < stat->nextSeq) { // have unacked
+        if (!stat->retrans) {
+            if (stat->sendBase < getNextSeq(stat)) { // have unacked
                 startTimer(stat->timerfd);
             } else {
                 stopTimer(stat->timerfd);
             }
         }
     } else if (!stat->retrans && (stat->retrans = hasTimeout)) {
-        timeoutCwnd(&stat->cwnd);
+        timeoutCwnd(&stat->cwnd, stat->sendBase);
     }
 }
 
-int sendpackt(const char* const file, SenderStat* stat) {
-    for (const char *it = file + MAX_PAYLOAD_LEN * stat->nextSeq,
-                    *end = file + MAX_PAYLOAD_LEN * (stat->sendBase + getCwnd(&stat->cwnd));
-                    it < end; ++it) {
-    };
+void prepare_packet(rdt_packet* pkt, const char* const file, uint32_t seq, uint16_t len) {
+    pkt->ack_num = 0;
+    const char* const chunk = file + MAX_PAYLOAD_LEN * seq;
+    memcpy(pkt->data, chunk, len);
+    pkt->fin_byte = FALSE;
+    pkt->payload = len;
+    pkt->seq_num = seq;
+}
+
+int sendpkts(int sockfd, const char* const file, SenderStat* stat, int* sockWritable) {
+    if (*sockWritable && allowSend(stat)) {
+        for (size_t seq = getNextSeq(stat); allowSend(stat); seq = updateNextSeq(stat, seq)) {
+            uint16_t len = seq == stat->totalSeq ? stat->lastChunk : MAX_PAYLOAD_LEN;
+            rdt_packet pkt = {0}; prepare_packet(&pkt, file, seq, len);
+            ssize_t sent;
+            while ((sent = sendto(sockfd, &pkt, sizeof pkt, 0, (struct sockaddr *) &si_other, sizeof si_other) == -1)) {
+                if (errno == EINTR) {
+                    continue;
+                } else if (errno == EWOULDBLOCK || errno == EAGAIN) {
+                    *sockWritable = FALSE;
+                    return 0;
+                }
+                return -1;
+            }
+            if (sent != len) {
+                warn("Not atomically sent");
+                exit(EXIT_FAILURE);
+            }
+        };
+    }
     return 0;
 }
 
@@ -182,10 +223,10 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
 
     /* Send data and receive acknowledgements on s*/
     SenderStat stat; initSenderStat(&stat, bytesToTransfer);
-    int epollFd = initEpollPool(&s, EPOLLIN | EPOLLOUT | EPOLLET, &stat.timerfd);
+    int epollFd = initEpollPool(s, EPOLLIN | EPOLLOUT | EPOLLET, stat.timerfd);
 
-    if (sendpackt(mFile, &stat)) {
-        diep("sendpacket");
+    if (sendpkts(s, mFile, &stat, &sockWritable)) {
+        diep("sendpkts");
     }
 
     struct epoll_event evs[evsLen];
@@ -208,13 +249,13 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
                 }
 
                 if (it->events & EPOLLOUT) {
-                    sockWritable = 1;
+                    sockWritable = TRUE;
                 }
-            } else { 
+            } else {
                 uint64_t round = drain(it->data.fd);
                 if (round >= 1) {
                     hasTimeout = TRUE;
-                } 
+                }
                 if (round > 1) {
                     warn("Timeout multiple times");
                 }
@@ -228,13 +269,8 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
         }
 
         // Process stat diff
-        if (sockWritable) {
-            if (stat.retrans) {
-                // retrans(mFile, &stat);
-            }
-            if (!allowSend(&stat)) {
-                // sendpackt(mFile, &stat)
-            }
+        if (sendpkts(s, mFile, &stat, &sockWritable)) {
+            diep("sendpkts");
         }
     }
 

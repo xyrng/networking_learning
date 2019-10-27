@@ -7,7 +7,7 @@ LINKLIBS = -lpthread
 #The components of each program. When you create a src/foo.c source file, add obj/foo.o here, separated
 #by a space (e.g. SOMEOBJECTS = obj/foo.o obj/bar.o obj/baz.o).
 SERVEROBJECTS = obj/receiver_main.o
-CLIENTOBJECTS = obj/sender_main.o
+CLIENTOBJECTS = obj/sender_main.o obj/adt.o
 
 #Every rule listed here as .PHONY is "phony": when you say you want that rule satisfied,
 #Make knows not to bother checking whether the file exists, it just runs the recipes regardless.
