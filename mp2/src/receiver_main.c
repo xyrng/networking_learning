@@ -52,6 +52,7 @@ int write_to_file(int fd, rdt_packet *packet) {
         }
         writed_size += round;
     } while (writed_size < total_size);
+    fprintf(stderr, "wriiten %d\n", packet->seq_num);
     return 0;
 }
 
@@ -71,7 +72,7 @@ int check_and_sent_buffer(int write_fd, int socket_fd, uint32_t *seq_num, receiv
     uint32_t ret_seq_num = *seq_num;
     // maybe bug: pointer++
     rdt_packet *temp_pkt = rec_queue->buffer + (ret_seq_num % WINDOW);
-    ack_packet *ack_pkt = {0};
+    ack_packet ack_pkt = {0};
     while (rec_queue->buflen[ret_seq_num % WINDOW] == 1) {
         // write that packet to the file
         if (temp_pkt->fin_byte == 1) {
@@ -83,8 +84,8 @@ int check_and_sent_buffer(int write_fd, int socket_fd, uint32_t *seq_num, receiv
         }
         rec_queue->buflen[ret_seq_num % WINDOW] = 0;
         ret_seq_num++;
-        build_ack_packet(ack_pkt, temp_pkt, ret_seq_num);
-        send_ack_packet(socket_fd, ack_pkt);
+        build_ack_packet(&ack_pkt, temp_pkt, ret_seq_num);
+        send_ack_packet(socket_fd, &ack_pkt);
         memset(temp_pkt, 0, sizeof(rdt_packet));
         temp_pkt = rec_queue->buffer + (ret_seq_num % WINDOW);
     }
@@ -104,6 +105,9 @@ int recvPacket(int sockfd, rdt_packet* const packet) {
     socklen_t addr_len = sizeof(addr_container);
     struct sockaddr *from_addr = (struct sockaddr *) &addr_container;
 
+    fprintf(stderr,"recvPacket at line %d\n", __LINE__);
+    fprintf(stderr,"sockfd: %d\npacket_addr: %p", sockfd, packet);
+    fprintf(stderr,"packet->seq_num: %d\npacket->ack_num: %d", packet->seq_num, packet->ack_num);
     size_t pkt_len = sizeof(rdt_packet);
     size_t numbytes;
     while ((numbytes = recvfrom(sockfd, packet, pkt_len, 0, from_addr, &addr_len)) == -1) {
@@ -112,6 +116,7 @@ int recvPacket(int sockfd, rdt_packet* const packet) {
         }
         diep("recvfrom");
     }
+    fprintf(stderr, "Received %zu bytes; Expect %zu bytes.\n", numbytes, pkt_len);
     if (numbytes != pkt_len) {
         warn("Packet Reading Failer [Size]");
         return -1;
@@ -131,12 +136,12 @@ int recvPacket(int sockfd, rdt_packet* const packet) {
 }
 
 void wait_for_break(int socket_fd, uint32_t last_ack_num) {
-    ack_packet *final_ack = {0};
-    final_ack->fin_byte = 1;
-    final_ack->ack_num = last_ack_num;
-    final_ack->seq_num = 0;
+    ack_packet final_ack = {0};
+    final_ack.fin_byte = 1;
+    final_ack.ack_num = last_ack_num;
+    final_ack.seq_num = 0;
     for (int i = 0; i < 45; i++) {
-        sendto(socket_fd, final_ack, sizeof(final_ack), 0,
+        sendto(socket_fd, &final_ack, sizeof(final_ack), 0,
             (struct sockaddr *)&si_other, sizeof(si_other));
         usleep(20000);
         // TODO: how to break
@@ -165,30 +170,32 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
     uint32_t last_ack_num = 0;
     int recv_fin_byte = 0;
     int write_file_fd;
-    if ((write_file_fd = open(destinationFile, O_WRONLY | O_APPEND | O_CREAT, 0644)) != -1) {
+    if ((write_file_fd = open(destinationFile, O_WRONLY | O_APPEND | O_CREAT, 0666)) != -1) {
         do {
-            rdt_packet *packet = {0};
-            ack_packet *ack_pkt = {0};
-            if (recvPacket(s, packet) != 0){
+
+            rdt_packet packet = {0};
+            ack_packet ack_pkt = {0};
+            if (recvPacket(s, &packet) != 0){
                 fprintf(stderr, "Parsing Packet Failure.\n");
                 if (last_ack_num == 0) {
                     continue;
                 }
                 // send dup ack
-                build_ack_packet(ack_pkt, packet, last_ack_num);
-                send_ack_packet(s, ack_pkt);
+                build_ack_packet(&ack_pkt, &packet, last_ack_num);
+                send_ack_packet(s, &ack_pkt);
                 continue;
             }
+            fprintf(stderr,"received at line %d\n", __LINE__);
             // write to file or save to queue
-            if (packet->seq_num == last_ack_num) {
-                if (write_to_file(write_file_fd, packet) != 0) {
+            if (packet.seq_num == last_ack_num) {
+                if (write_to_file(write_file_fd, &packet) != 0) {
                     // TODO: check this situation handling.
                     fprintf(stderr, "Write to file Failure.\n");
                     exit(1);
                 } else {
-                    last_ack_num = packet->seq_num + 1;
-                    build_ack_packet(ack_pkt, packet, last_ack_num);
-                    send_ack_packet(s, ack_pkt);
+                    last_ack_num = packet.seq_num + 1;
+                    build_ack_packet(&ack_pkt, &packet, last_ack_num);
+                    send_ack_packet(s, &ack_pkt);
                     if (check_and_sent_buffer(write_file_fd, s, &last_ack_num, &rec_queue) == 1) {
                         recv_fin_byte = 1;
                         close(write_file_fd);
@@ -196,16 +203,16 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
                         break;
                     }
                 }
-            } else if (packet->seq_num > last_ack_num) {
-                map_to_queue(&rec_queue, packet);
-                build_ack_packet(ack_pkt, packet, last_ack_num);
-                send_ack_packet(s, ack_pkt);
+            } else if (packet.seq_num > last_ack_num) {
+                map_to_queue(&rec_queue, &packet);
+                build_ack_packet(&ack_pkt, &packet, last_ack_num);
+                send_ack_packet(s, &ack_pkt);
             } else {
-                build_ack_packet(ack_pkt, packet, last_ack_num);
-                send_ack_packet(s, ack_pkt);
+                build_ack_packet(&ack_pkt, &packet, last_ack_num);
+                send_ack_packet(s, &ack_pkt);
             }
 
-            if (packet->fin_byte == 1) {
+            if (packet.fin_byte == 1) {
                 recv_fin_byte = 1;
                 close(write_file_fd);
                 wait_for_break(s, last_ack_num);
