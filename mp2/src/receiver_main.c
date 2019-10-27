@@ -165,7 +165,7 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
     uint32_t last_ack_num = 0;
     int recv_fin_byte = 0;
     int write_file_fd;
-    if ((write_file_fd = open(destinationFile, O_WRONLY | O_APPEND | O_CREAT)) != -1) {
+    if ((write_file_fd = open(destinationFile, O_WRONLY | O_APPEND | O_CREAT, 0644)) != -1) {
         do {
             rdt_packet *packet = {0};
             ack_packet *ack_pkt = {0};
