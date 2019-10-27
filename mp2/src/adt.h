@@ -35,6 +35,18 @@ void ackCwnd(Cwnd* cwnd, uint32_t ackNum);
 int confirmThreeDups(Cwnd* cwnd);
 void timeoutCwnd(Cwnd* cwnd, uint32_t ack);
 
+typedef struct timer {
+    int fd;
+    char running;
+} Timer;
+
+int initTimer(Timer* timer);
+int getfd(Timer* timer);
+uint64_t drain(int timerfd);
+void startTimerIfNotRunning(Timer* timer, const struct itimerspec* const spec);
+void startTimer(Timer* timer, const struct itimerspec* const spec);
+void stopTimer(Timer* timer);
+
 typedef struct statistics {
     Cwnd cwnd;
     uint32_t totalSeq;
@@ -42,7 +54,7 @@ typedef struct statistics {
     uint32_t lastSent;
     uint32_t highestSeq;
     uint16_t lastChunk;
-    int timerfd;
+    Timer timer;
     char retrans;
     char recvFin;
 } SenderStat;

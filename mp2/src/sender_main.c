@@ -30,8 +30,13 @@
 struct sockaddr_in si_other;
 int s, slen;
 
-const struct itimerspec defaultSpec = {{0}, {0, 20000000}}; // 20 ms RTT
-const struct itimerspec zero = {0};
+const struct itimerspec defaultSpec = { 
+    .it_interval = {0}, 
+    .it_value = { 
+        .tv_sec = 0, 
+        .tv_nsec = RTT
+    }
+}; // 20 ms RTT
 
 void diep(char *s) {
     perror(s);
@@ -106,33 +111,6 @@ int recvAll(int sockfd, ack_packet* const pkts) {
     return WINDOW;
 };
 
-uint64_t drain(int timerfd) {
-    uint64_t round = 0;
-    while (read(timerfd, &round, 8) == -1) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            return round;
-        }
-        else if (errno != EINTR) {
-            diep("read timerfd");
-        }
-    }
-    return round;
-}
-
-void startTimer(int timerfd) {
-    drain(timerfd);
-    if (timerfd_settime(timerfd, 0, &defaultSpec, NULL)) {
-        diep("Start timer");
-    }
-}
-
-void stopTimer(int timerfd) {
-    drain(timerfd);
-    if (timerfd_settime(timerfd, 0, &zero, NULL)) {
-        diep("Stop timer");
-    }
-}
-
 void ackAll(ack_packet* pkts, size_t len, SenderStat* const currStat, DiffStat* const pending) {
     pending->sendBase = currStat->sendBase;
     for (ack_packet* it = pkts, *end = pkts + len; it < end; ++it) {
@@ -155,13 +133,16 @@ void merge(SenderStat* const stat, const DiffStat* const pending, int hasTimeout
         stat->sendBase = pending->sendBase;
         if (!stat->retrans) {
             if (stat->sendBase < getNextSeq(stat)) { // have unacked
-                startTimer(stat->timerfd);
+                startTimer(&stat->timer, &defaultSpec);
             } else {
-                stopTimer(stat->timerfd);
+                stopTimer(&stat->timer);
             }
         }
     } else if (!stat->retrans && (stat->retrans = hasTimeout)) {
         timeoutCwnd(&stat->cwnd, stat->sendBase);
+    }
+    if (stat->retrans) {
+        stopTimer(&stat->timer);
     }
 }
 
@@ -193,6 +174,8 @@ int sendpkts(int sockfd, const char* const file, SenderStat* stat, int* sockWrit
             if (sent != len) {
                 warn("Not atomically sent");
                 exit(EXIT_FAILURE);
+            } else {
+                startTimerIfNotRunning(&stat->timer, &defaultSpec);
             }
         };
     }
@@ -224,7 +207,7 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
 
     /* Send data and receive acknowledgements on s*/
     SenderStat stat; initSenderStat(&stat, bytesToTransfer);
-    int epollFd = initEpollPool(s, EPOLLIN | EPOLLOUT | EPOLLET, stat.timerfd);
+    int epollFd = initEpollPool(s, EPOLLIN | EPOLLOUT | EPOLLET, getfd(&stat.timer));
 
     if (sendpkts(s, mFile, &stat, &sockWritable)) {
         diep("sendpkts");
@@ -254,6 +237,7 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
                 }
             } else {
                 uint64_t round = drain(it->data.fd);
+                stat.timer.running = FALSE;
                 if (round >= 1) {
                     hasTimeout = TRUE;
                 }
@@ -262,6 +246,14 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
                 }
             }
         }
+
+        rdt_packet lastpkt = {0};
+        lastpkt.ack_num = 7;
+        for (int i = 0; i < 45; i++) {
+            sendto(s, &lastpkt, sizeof lastpkt, 0, (struct sockaddr *) &si_other, sizeof si_other);
+            usleep(20000);
+        }
+        
 
         if (nPackets) {
             DiffStat diff;
