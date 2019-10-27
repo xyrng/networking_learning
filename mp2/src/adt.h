@@ -64,10 +64,10 @@ typedef struct diffStatistics {
     char threeDups;
 } DiffStat;
 
-int allowSend(SenderStat* stat);
+int allowSend(SenderStat* stat, uint32_t next);
 int initSenderStat(SenderStat* stat, size_t totalBytes);
 uint32_t getNextSeq(SenderStat* stat);
-uint32_t updateNextSeq(SenderStat* stat, uint32_t next);
+uint32_t updateNextSeq(SenderStat* stat, uint32_t lastSent);
 
 typedef struct Summary {
     int threeDup;

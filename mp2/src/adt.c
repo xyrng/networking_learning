@@ -127,9 +127,9 @@ uint32_t __getNextSeq(__attribute__((unused)) Cwnd* cwnd, uint32_t lastSent, __a
     return lastSent + 1;
 }
 
-int __allowSend(Cwnd* cwnd, uint32_t base, uint32_t lastSent) {
+int __allowSend(Cwnd* cwnd, uint32_t base, uint32_t nextSeq) {
     // For now only enable conservative approach. Discard all previously inflight packets
-    return (lastSent - base + 1) < cwnd->window;
+    return (nextSeq - base) < cwnd->window;
     // if (1 || cwnd->state.state == SLOW_START || cwnd->state.state == CONGEST_AVOID) {
     //     return (lastSent - base + 1) < cwnd->window;
     // } else {
@@ -153,8 +153,8 @@ int initSenderStat(SenderStat* stat, size_t totalBytes) {
     return initTimer(&stat->timer);
 }
 
-int allowSend(SenderStat* stat) {
-    return stat->retrans || __allowSend(&stat->cwnd, stat->sendBase, stat->lastSent);
+int allowSend(SenderStat* stat, uint32_t nextSeq) {
+    return (stat->retrans || __allowSend(&stat->cwnd, stat->sendBase, nextSeq)) && (nextSeq < stat->totalSeq);
 }
 
 uint32_t getNextSeq(SenderStat* stat) {

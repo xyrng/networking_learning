@@ -157,12 +157,15 @@ void prepare_packet(rdt_packet* pkt, const char* const file, uint32_t seq, uint1
 }
 
 int sendpkts(int sockfd, const char* const file, SenderStat* stat, int* sockWritable) {
-    if (*sockWritable && allowSend(stat)) {
-        for (size_t seq = getNextSeq(stat); allowSend(stat); seq = updateNextSeq(stat, seq)) {
-            uint16_t len = seq == stat->totalSeq ? stat->lastChunk : MAX_PAYLOAD_LEN;
+    if (*sockWritable && allowSend(stat, getNextSeq(stat))) {
+        for (size_t seq = getNextSeq(stat); allowSend(stat, seq); seq = updateNextSeq(stat, seq)) {
+            uint16_t len = seq + 1 == stat->totalSeq ? stat->lastChunk : MAX_PAYLOAD_LEN;
             rdt_packet pkt = {0}; prepare_packet(&pkt, file, seq, len, seq == stat->totalSeq);
+            fprintf(stderr, "%d\n", len);
+            fprintf(stderr, "%s %d %d %d %d\n", pkt.data, pkt.payload, pkt.seq_num, pkt.ack_num, pkt.fin_byte);
+            fprintf(stderr, "%ld\n", sizeof pkt);
             ssize_t sent;
-            while ((sent = sendto(sockfd, &pkt, sizeof pkt, 0, (struct sockaddr *) &si_other, sizeof si_other) == -1)) {
+            while ((sent = sendto(sockfd, &pkt, sizeof pkt, 0, (struct sockaddr *) &si_other, sizeof si_other)) == -1) {
                 if (errno == EINTR) {
                     continue;
                 } else if (errno == EWOULDBLOCK || errno == EAGAIN) {
@@ -171,7 +174,7 @@ int sendpkts(int sockfd, const char* const file, SenderStat* stat, int* sockWrit
                 }
                 return -1;
             }
-            if (sent != len) {
+            if (sent != sizeof pkt) {
                 warn("Not atomically sent");
                 fprintf(stderr, "%ld\n", sent);
                 exit(EXIT_FAILURE);
@@ -241,6 +244,7 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
                 stat.timer.running = FALSE;
                 if (round >= 1) {
                     hasTimeout = TRUE;
+                    warn("Timeout");
                 }
                 if (round > 1) {
                     warn("Timeout multiple times");
