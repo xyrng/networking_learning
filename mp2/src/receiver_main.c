@@ -10,11 +10,16 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <errno.h>
+#include <error.h>
 #include "adt.h"
 #include "constants.h"
+
 
 
 struct sockaddr_in si_me, si_other;
@@ -23,6 +28,10 @@ int s, slen;
 void diep(char *s) {
     perror(s);
     exit(1);
+}
+
+void warn(const char* const s) {
+    fprintf(stderr, "[WARNING]: %s", s);
 }
 
 // TODO: check stack mem problem
@@ -46,29 +55,8 @@ int write_to_file(int fd, rdt_packet *packet) {
     return 0;
 }
 
-void check_and_sent_buffer(int write_fd, int socket_fd, uint32_t *seq_num, receiverQ *rec_queue) {
-    // maybe bug: uint32_t or int
-    uint32_t ret_seq_num = *seq_num;
-    // maybe bug: pointer++
-    rdt_packet *temp_pkt = rec_queue->buffer + (ret_seq_num % WINDOW);
-    ack_packet *ack_pkt;
-    while (temp_pkt != NULL && *temp_pkt != NULL) {
-        // write that packet to the file
-        if (write_to_file(write_fd, temp_pkt) != 0) {
-            fprintf(stderr, "Write to file Failure.\n");
-            exit(1);
-        }
-        ret_seq_num++;
-        build_ack_packet(ack_pkt, temp_pkt, ret_seq_num);
-        send_ack_packet(socket_fd, ack_pkt);
-        memset(temp_pkt, 0, sizeof(rdt_packet));
-        temp_pkt = rec_queue->buffer + ret_seq_num;
-    }
-    *seq_num = ret_seq_num;
-}
-
 void send_ack_packet(int socket_fd, ack_packet *ack_pkt) {
-    if (sendto(socket_fd, ack_pkt, sizeof(ack_packet), 0,
+    while (sendto(socket_fd, ack_pkt, sizeof(ack_packet), 0,
                (struct sockaddr *)&si_other, sizeof(si_other)) == -1) {
         if (errno == EINTR) {
             continue;
@@ -77,20 +65,43 @@ void send_ack_packet(int socket_fd, ack_packet *ack_pkt) {
     }
 }
 
+void check_and_sent_buffer(int write_fd, int socket_fd, uint32_t *seq_num, receiverQ *rec_queue) {
+    // maybe bug: uint32_t or int
+    uint32_t ret_seq_num = *seq_num;
+    // maybe bug: pointer++
+    rdt_packet *temp_pkt = rec_queue->buffer + (ret_seq_num % WINDOW);
+    ack_packet *ack_pkt = {0};
+    while (rec_queue->buflen[ret_seq_num % WINDOW] == 1) {
+        // write that packet to the file
+        if (write_to_file(write_fd, temp_pkt) != 0) {
+            fprintf(stderr, "Write to file Failure.\n");
+            exit(1);
+        }
+        rec_queue->buflen[ret_seq_num % WINDOW] = 0;
+        ret_seq_num++;
+        build_ack_packet(ack_pkt, temp_pkt, ret_seq_num);
+        send_ack_packet(socket_fd, ack_pkt);
+        memset(temp_pkt, 0, sizeof(rdt_packet));
+        temp_pkt = rec_queue->buffer + (ret_seq_num % WINDOW);
+    }
+    *seq_num = ret_seq_num;
+}
+
 void map_to_queue(receiverQ *queue, rdt_packet *packet) {
     uint32_t seq_num = packet->seq_num % WINDOW;
-    memset(queue->buffer + seq_num, packet, sizeof(rdt_packet));
+    memcpy(queue->buffer + seq_num, packet, sizeof(rdt_packet));
+    queue->buflen[seq_num] = 1;
 }
 
 // TODO: check
 int recvPacket(int sockfd, rdt_packet* const packet) {
     struct sockaddr_storage addr_container = {0};
     socklen_t addr_len = sizeof(addr_container);
-    struct sockaddr* from_addr = &addr_container;
+    struct sockaddr *from_addr = (struct sockaddr *) &addr_container;
 
     size_t pkt_len = sizeof(rdt_packet);
     size_t numbytes;
-    while (numbytes = recvfrom(sockfd, packet, pkt_len, 0, from_addr, addr_len) == -1) {
+    while ((numbytes = recvfrom(sockfd, packet, pkt_len, 0, from_addr, &addr_len)) == -1) {
         if (errno == EINTR) {
             continue;
         }
@@ -100,13 +111,14 @@ int recvPacket(int sockfd, rdt_packet* const packet) {
         warn("Packet Reading Failer [Size]");
         return -1;
     }
+    struct sockaddr_in* cast = (struct sockaddr_in *) from_addr;
     if (packet->seq_num == 0) {
         si_other.sin_family = AF_INET;
-        si_other.sin_port = from_addr->sin_port;
-        si_other.sin_addr.s_addr = from_addr->sin_addr.s_addr;
+        si_other.sin_port = cast->sin_port;
+        si_other.sin_addr.s_addr = cast->sin_addr.s_addr;
     }
     // TODO: check
-    if (from_addr->sin_port != si_other.sin_port || from_addr->sin_addr.s_addr != si_other.sin_addr.s_addr) {
+    if (cast->sin_port != si_other.sin_port || cast->sin_addr.s_addr != si_other.sin_addr.s_addr) {
         warn("Ignoring packets from nonrelevant addr");
         return -1;
     }
@@ -136,8 +148,8 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
     int write_file_fd;
     if ((write_file_fd = open(destinationFile, O_WRONLY | O_APPEND | O_CREAT)) != -1) {
         do {
-            rdt_packet *packet;
-            ack_packet *ack_pkt;
+            rdt_packet *packet = {0};
+            ack_packet *ack_pkt = {0};
             if (recvPacket(s, packet) != 0){
                 fprintf(stderr, "Parsing Packet Failure.\n");
                 if (last_ack_num == 0) {
@@ -150,7 +162,7 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
             }
             // write to file or save to queue
             if (packet->seq_num == last_ack_num) {
-                if (write_to_file(fd, packet) != 0) {
+                if (write_to_file(write_file_fd, packet) != 0) {
                     // TODO: check this situation handling.
                     fprintf(stderr, "Write to file Failure.\n");
                     exit(1);
@@ -172,12 +184,12 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
             if (packet->fin_byte == '1') {
                 break;
             }
-        } while(1)
+        } while(1);
     } else {
         perror("Error");
     }
 
-    close(fp);
+    close(write_file_fd);
     close(s);
     printf("%s received.", destinationFile);
     return;

@@ -73,12 +73,12 @@ typedef struct rdt_packet {
     uint32_t  ack_num;
     uint16_t  payload;              //data size
     char      fin_byte;
-    char      data[1024];
+    char      data[MAX_PAYLOAD_LEN];
 } rdt_packet;
 
 typedef struct rqueue {
     rdt_packet    buffer[WINDOW];
-    size_t        buflen[WINDOW];      // length of each packet
+    size_t        buflen[WINDOW];      // whether there is a packet
     size_t        start;
     size_t        end;
     size_t        length;
