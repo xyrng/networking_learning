@@ -160,10 +160,10 @@ int sendpkts(int sockfd, const char* const file, SenderStat* stat, int* sockWrit
     if (*sockWritable && allowSend(stat, getNextSeq(stat))) {
         for (size_t seq = getNextSeq(stat); allowSend(stat, seq); seq = updateNextSeq(stat, seq)) {
             uint16_t len = seq + 1 == stat->totalSeq ? stat->lastChunk : MAX_PAYLOAD_LEN;
-            rdt_packet pkt = {0}; prepare_packet(&pkt, file, seq, len, seq == stat->totalSeq);
-            fprintf(stderr, "%d\n", len);
-            fprintf(stderr, "%s %d %d %d %d\n", pkt.data, pkt.payload, pkt.seq_num, pkt.ack_num, pkt.fin_byte);
-            fprintf(stderr, "%ld\n", sizeof pkt);
+            rdt_packet pkt = {0}; prepare_packet(&pkt, file, seq, len, seq + 1 == stat->totalSeq);
+            // fprintf(stderr, "%d\n", len);
+            // fprintf(stderr, "%s %d %d %d %d\n", pkt.data, pkt.payload, pkt.seq_num, pkt.ack_num, pkt.fin_byte);
+            // fprintf(stderr, "%ld\n", sizeof pkt);
             ssize_t sent;
             while ((sent = sendto(sockfd, &pkt, sizeof pkt, 0, (struct sockaddr *) &si_other, sizeof si_other)) == -1) {
                 if (errno == EINTR) {
@@ -266,13 +266,13 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
 
     rdt_packet lastpkt = {0};
     lastpkt.ack_num = 7;
-    for (int i = 0; i < 250; i++) {
+    for (int i = 0; i < 125; i++) {
         ssize_t sent;
         if ((sent = sendto(s, &lastpkt, sizeof lastpkt, 0, 
                 (struct sockaddr *) &si_other, sizeof si_other)) == -1) {
             perror("sent");
         };
-        fprintf(stderr, "send last pkt: %d bytes\n", sent);
+        // fprintf(stderr, "send last pkt: %d bytes\n", sent);
         usleep(20000);
     }
 
