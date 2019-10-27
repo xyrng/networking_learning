@@ -119,6 +119,7 @@ void ackAll(ack_packet* pkts, size_t len, SenderStat* const currStat, DiffStat* 
             pending->sendBase = ack;
             currStat->recvFin |= it->fin_byte;
             // TODO: Move to outside?
+            fprintf(stderr, "acking: %d\n", ack);
             ackCwnd(&currStat->cwnd, ack);
         } else {
             warn("Out of window ack from receiver. Ignored");
@@ -128,22 +129,32 @@ void ackAll(ack_packet* pkts, size_t len, SenderStat* const currStat, DiffStat* 
 }
 
 void merge(SenderStat* const stat, const DiffStat* const pending, int hasTimeout) {
+    fprintf(stderr, "Merging...\n");
+    fprintf(stderr, "hasTimeout:%d\n\n", hasTimeout);
     stat->retrans = pending->threeDups;
     if (stat->sendBase < pending->sendBase) { // Advanced, ignore old timer
         stat->sendBase = pending->sendBase;
+        fprintf(stderr, "Advanced\n");
         if (!stat->retrans) {
             if (stat->sendBase < getNextSeq(stat)) { // have unacked
                 startTimer(&stat->timer, &defaultSpec);
+                fprintf(stderr, "Unacked remaining\n");
             } else {
                 stopTimer(&stat->timer);
+                fprintf(stderr, "All acked!");
             }
+        } else {
+            fprintf(stderr, "Advanced but 3 dups\n");
         }
     } else if (!stat->retrans && (stat->retrans = hasTimeout)) {
         timeoutCwnd(&stat->cwnd, stat->sendBase);
+        fprintf(stderr, "Timeout caught\n");
     }
     if (stat->retrans) {
         stopTimer(&stat->timer);
+        fprintf(stderr, "Ready to Retransmit\n");
     }
+    fprintf(stderr, "ssthresh: %d, cwnd: %d\n", stat->cwnd.ssthresh, stat->cwnd.window);
 }
 
 void prepare_packet(rdt_packet* pkt, const char* const file, uint32_t seq, uint16_t len, int last_seq) {
@@ -158,12 +169,11 @@ void prepare_packet(rdt_packet* pkt, const char* const file, uint32_t seq, uint1
 
 int sendpkts(int sockfd, const char* const file, SenderStat* stat, int* sockWritable) {
     if (*sockWritable && allowSend(stat, getNextSeq(stat))) {
+        fprintf(stderr, "Merging!\n");
         for (size_t seq = getNextSeq(stat); allowSend(stat, seq); seq = updateNextSeq(stat, seq)) {
             uint16_t len = seq + 1 == stat->totalSeq ? stat->lastChunk : MAX_PAYLOAD_LEN;
             rdt_packet pkt = {0}; prepare_packet(&pkt, file, seq, len, seq + 1 == stat->totalSeq);
-            // fprintf(stderr, "%d\n", len);
-            // fprintf(stderr, "%s %d %d %d %d\n", pkt.data, pkt.payload, pkt.seq_num, pkt.ack_num, pkt.fin_byte);
-            // fprintf(stderr, "%ld\n", sizeof pkt);
+            //fprintf(stderr, "%d %d %d %d\n", pkt.payload, pkt.seq_num, pkt.ack_num, pkt.fin_byte);
             ssize_t sent;
             while ((sent = sendto(sockfd, &pkt, sizeof pkt, 0, (struct sockaddr *) &si_other, sizeof si_other)) == -1) {
                 if (errno == EINTR) {
@@ -179,6 +189,7 @@ int sendpkts(int sockfd, const char* const file, SenderStat* stat, int* sockWrit
                 fprintf(stderr, "%ld\n", sent);
                 exit(EXIT_FAILURE);
             } else {
+                // fprintf(stderr, "Restart timer\n");
                 startTimerIfNotRunning(&stat->timer, &defaultSpec);
             }
         };
@@ -244,7 +255,7 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
                 stat.timer.running = FALSE;
                 if (round >= 1) {
                     hasTimeout = TRUE;
-                    warn("Timeout");
+                    warn("Timeout\n");
                 }
                 if (round > 1) {
                     warn("Timeout multiple times");
@@ -252,9 +263,11 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
             }
         }
 
-        if (nPackets) {
+        if (nPackets || hasTimeout) {
             DiffStat diff;
+            fprintf(stderr, "\nAcking!\n");
             ackAll(pktBuffer, nPackets, &stat, &diff);
+            fprintf(stderr, "Merging!\n");
             merge(&stat, &diff, hasTimeout);
         }
 
