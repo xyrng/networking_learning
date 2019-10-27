@@ -146,20 +146,21 @@ void merge(SenderStat* const stat, const DiffStat* const pending, int hasTimeout
     }
 }
 
-void prepare_packet(rdt_packet* pkt, const char* const file, uint32_t seq, uint16_t len) {
+void prepare_packet(rdt_packet* pkt, const char* const file, uint32_t seq, uint16_t len, int last_seq) {
     pkt->ack_num = 0;
     const char* const chunk = file + MAX_PAYLOAD_LEN * seq;
     memcpy(pkt->data, chunk, len);
-    pkt->fin_byte = FALSE;
+    pkt->fin_byte = last_seq;
     pkt->payload = len;
     pkt->seq_num = seq;
+
 }
 
 int sendpkts(int sockfd, const char* const file, SenderStat* stat, int* sockWritable) {
     if (*sockWritable && allowSend(stat)) {
         for (size_t seq = getNextSeq(stat); allowSend(stat); seq = updateNextSeq(stat, seq)) {
             uint16_t len = seq == stat->totalSeq ? stat->lastChunk : MAX_PAYLOAD_LEN;
-            rdt_packet pkt = {0}; prepare_packet(&pkt, file, seq, len);
+            rdt_packet pkt = {0}; prepare_packet(&pkt, file, seq, len, seq == stat->totalSeq);
             ssize_t sent;
             while ((sent = sendto(sockfd, &pkt, sizeof pkt, 0, (struct sockaddr *) &si_other, sizeof si_other) == -1)) {
                 if (errno == EINTR) {
@@ -286,5 +287,3 @@ int main(int argc, char** argv) {
 
     return (EXIT_SUCCESS);
 }
-
-
