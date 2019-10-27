@@ -68,11 +68,18 @@ void send_ack_packet(int socket_fd, ack_packet *ack_pkt) {
 
 int check_and_sent_buffer(int write_fd, int socket_fd, uint32_t *seq_num, receiverQ *rec_queue) {
     int retval = 0;
-    // maybe bug: uint32_t or int
     uint32_t ret_seq_num = *seq_num;
-    // maybe bug: pointer++
-    rdt_packet *temp_pkt = rec_queue->buffer + (ret_seq_num % WINDOW);
+    // send accumulative ack
     ack_packet ack_pkt = {0};
+    uint32_t last_ack_num = ret_seq_num;
+    while (rec_queue->buflen[last_ack_num % WINDOW] == 1) {
+        last_ack_num++;
+    }
+    rdt_packet *last_pkt = rec_queue->buffer + ((last_ack_num - 1) % WINDOW);
+    build_ack_packet(&ack_pkt, last_pkt, last_ack_num);
+    send_ack_packet(socket_fd, &ack_pkt);
+    // write buffer to file
+    rdt_packet *temp_pkt = rec_queue->buffer + (ret_seq_num % WINDOW);
     while (rec_queue->buflen[ret_seq_num % WINDOW] == 1) {
         // write that packet to the file
         if (temp_pkt->fin_byte == 1) {
@@ -84,8 +91,6 @@ int check_and_sent_buffer(int write_fd, int socket_fd, uint32_t *seq_num, receiv
         }
         rec_queue->buflen[ret_seq_num % WINDOW] = 0;
         ret_seq_num++;
-        build_ack_packet(&ack_pkt, temp_pkt, ret_seq_num);
-        send_ack_packet(socket_fd, &ack_pkt);
         memset(temp_pkt, 0, sizeof(rdt_packet));
         temp_pkt = rec_queue->buffer + (ret_seq_num % WINDOW);
     }
@@ -196,12 +201,7 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
                     last_ack_num = packet.seq_num + 1;
                     build_ack_packet(&ack_pkt, &packet, last_ack_num);
                     send_ack_packet(s, &ack_pkt);
-                    if (packet.fin_byte == 1) {
-                        recv_fin_byte = 1;
-                        close(write_file_fd);
-                        wait_for_break(s, last_ack_num);
-                        break;
-                    }
+
                     if (check_and_sent_buffer(write_file_fd, s, &last_ack_num, &rec_queue) == 1) {
                         recv_fin_byte = 1;
                         close(write_file_fd);
@@ -217,7 +217,6 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
                 build_ack_packet(&ack_pkt, &packet, last_ack_num);
                 send_ack_packet(s, &ack_pkt);
             }
-
         } while(1);
     } else {
         perror("Error");
