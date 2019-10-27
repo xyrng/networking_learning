@@ -201,7 +201,12 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
                     last_ack_num = packet.seq_num + 1;
                     build_ack_packet(&ack_pkt, &packet, last_ack_num);
                     send_ack_packet(s, &ack_pkt);
-
+                    if (packet.fin_byte == 1) {
+                        recv_fin_byte = 1;
+                        close(write_file_fd);
+                        wait_for_break(s, last_ack_num);
+                        break;
+                    }
                     if (check_and_sent_buffer(write_file_fd, s, &last_ack_num, &rec_queue) == 1) {
                         recv_fin_byte = 1;
                         close(write_file_fd);
