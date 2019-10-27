@@ -41,9 +41,7 @@ typedef struct timer {
 } Timer;
 
 int initTimer(Timer* timer);
-int getfd(Timer* timer) {
-    return timer->fd;
-}
+int getfd(Timer* timer);
 uint64_t drain(int timerfd);
 void startTimerIfNotRunning(Timer* timer, const struct itimerspec* const spec);
 void startTimer(Timer* timer, const struct itimerspec* const spec);

@@ -207,7 +207,7 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
 
     /* Send data and receive acknowledgements on s*/
     SenderStat stat; initSenderStat(&stat, bytesToTransfer);
-    int epollFd = initEpollPool(s, EPOLLIN | EPOLLOUT | EPOLLET, getTimer(stat.timer));
+    int epollFd = initEpollPool(s, EPOLLIN | EPOLLOUT | EPOLLET, getfd(&stat.timer));
 
     if (sendpkts(s, mFile, &stat, &sockWritable)) {
         diep("sendpkts");
@@ -246,6 +246,14 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
                 }
             }
         }
+
+        rdt_packet lastpkt = {0};
+        lastpkt.ack_num = 7;
+        for (int i = 0; i < 45; i++) {
+            sendto(s, &lastpkt, sizeof lastpkt, 0, (struct sockaddr *) &si_other, sizeof si_other);
+            usleep(20000);
+        }
+        
 
         if (nPackets) {
             DiffStat diff;

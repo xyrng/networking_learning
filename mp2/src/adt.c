@@ -5,6 +5,7 @@
  */
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <errno.h>
 #include <error.h>
 #include <time.h>
@@ -121,7 +122,7 @@ void timeoutCwnd(Cwnd* cwnd, uint32_t ack) {
     __toSlowStart(cwnd);
 }
 
-uint32_t __getNextSeq(__attribute__((usused)) Cwnd* cwnd, uint32_t lastSent, __attribute__((unused)) uint32_t highestSeq) {
+uint32_t __getNextSeq(__attribute__((unused)) Cwnd* cwnd, uint32_t lastSent, __attribute__((unused)) uint32_t highestSeq) {
     // For now only allow increment by 1 from previous sent, i.e., don't jump unless base is updated
     return lastSent + 1;
 }
@@ -178,7 +179,8 @@ uint64_t drain(int timerfd) {
             return round;
         }
         else if (errno != EINTR) {
-            diep("read timerfd");
+            perror("Read timer");
+            exit(EXIT_FAILURE);
         }
     }
     return round;
@@ -187,12 +189,18 @@ uint64_t drain(int timerfd) {
 int initTimer(Timer* timer) {
     timer->fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
     timer->running = FALSE;
+    return timer->fd;
+}
+
+int getfd(Timer* timer){
+    return timer->fd;
 }
 
 void startTimerIfNotRunning(Timer *timer, const struct itimerspec* const spec) {
     if (!timer->running) {
         if (timerfd_settime(timer->fd, 0, spec, NULL)) {
-            diep("Start timer");
+            perror("Start timer");
+            exit(EXIT_FAILURE);
         }
         timer->running = TRUE;
     }
@@ -201,7 +209,8 @@ void startTimerIfNotRunning(Timer *timer, const struct itimerspec* const spec) {
 void startTimer(Timer* timer, const struct itimerspec* const spec) {
     drain(timer->fd);
     if (timerfd_settime(timer->fd, 0, spec, NULL)) {
-        diep("Start timer");
+            perror("Start timer");
+            exit(EXIT_FAILURE);
     }
     timer->running = TRUE;
 }
@@ -209,9 +218,10 @@ void startTimer(Timer* timer, const struct itimerspec* const spec) {
 void stopTimer(Timer* timer) {
     static const struct itimerspec zero = {0};
     if (timer->running != 0) {
-        uint64_t r = drain(timer->fd);
+        drain(timer->fd);
         if (timerfd_settime(timer->fd, 0, &zero, NULL)) {
-            diep("Stop timer");
+            perror("Stop timer");
+            exit(EXIT_FAILURE);
         }
         timer->running = FALSE;
     }
