@@ -252,14 +252,6 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
             }
         }
 
-        rdt_packet lastpkt = {0};
-        lastpkt.ack_num = 7;
-        for (int i = 0; i < 45; i++) {
-            sendto(s, &lastpkt, sizeof lastpkt, 0, (struct sockaddr *) &si_other, sizeof si_other);
-            usleep(20000);
-        }
-        
-
         if (nPackets) {
             DiffStat diff;
             ackAll(pktBuffer, nPackets, &stat, &diff);
@@ -270,6 +262,18 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
         if (sendpkts(s, mFile, &stat, &sockWritable)) {
             diep("sendpkts");
         }
+    }
+
+    rdt_packet lastpkt = {0};
+    lastpkt.ack_num = 7;
+    for (int i = 0; i < 250; i++) {
+        ssize_t sent;
+        if ((sent = sendto(s, &lastpkt, sizeof lastpkt, 0, 
+                (struct sockaddr *) &si_other, sizeof si_other)) == -1) {
+            perror("sent");
+        };
+        fprintf(stderr, "send last pkt: %d bytes\n", sent);
+        usleep(20000);
     }
 
     printf("Closing the socket\n");
