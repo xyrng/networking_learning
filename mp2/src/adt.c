@@ -31,11 +31,9 @@ int isFinished(timedSlot* slot) {
  */
 void init(SenderQ* q) {
     q-> length = q-> start = q->end = 0;
-    for (timedSlot *it = q->slots, *end = q->slots + WINDOW; it < end; ++it) {
+    for (Slot *it = q->slots, *end = q->slots + WINDOW; it < end; ++it) {
         it->chunk = NULL;
         it->length = 0;
-        it->timed = FALSE;
-        it->timestamp.tv_sec = it->timestamp.tv_nsec = 0;
     }
 }
 
@@ -88,8 +86,8 @@ int sweep(SenderQ* q) {
  * Sender Stat Impl
  */
 int initSenderStat(SenderStat* stat, size_t totalBytes) {
-    stat->sentBytes = stat->sendBase = stat->nextSeq = 0;
-    stat->totalBytes = totalBytes;
+    stat->sendBase = stat->nextSeq = 0;
+    stat->totalSeq = 1 + (totalBytes - 1) / MAX_PAYLOAD_LEN;
     stat->retrans = FALSE;
     stat->recvFin = FALSE;
     init(&stat->cwnd);
@@ -97,7 +95,7 @@ int initSenderStat(SenderStat* stat, size_t totalBytes) {
 }
 
 int allowSend(SenderStat* stat) {
-    return stat->retrans || stat->nextSeq - stat->sendBase > getCwnd(&stat->cwnd);
+    return stat->nextSeq - stat->sendBase < getCwnd(&stat->cwnd);
 }
 
 /*
@@ -120,7 +118,7 @@ void _dupAck(Cwnd* cwnd) {
     }
 }
 
-void _ackSlowStart(Cwnd* cwnd) {
+void _ackSlowStart(Cwnd* cwnd, uint32_t ack) {
     _clearDup(cwnd);
     if (++(cwnd->window) >= cwnd->ssthresh) {
         _toCongAvoid(cwnd);
@@ -133,9 +131,9 @@ void _toSlowStart(Cwnd* cwnd) {
     cwnd->state.dupAck = _dupAck;
 }
 
-void _ackCongAvoid(Cwnd* cwnd) {
+void _ackCongAvoid(Cwnd* cwnd, uint32_t ack) {
     _clearDup(cwnd);
-    if (++(cwnd->ackThisRound) >= cwnd->window) {
+    if ((cwnd->ackThisRound += ack - cwnd->lastAck) >= cwnd->window) {
         cwnd->window++;
         cwnd->ackThisRound = 0;
     }
@@ -148,7 +146,7 @@ void _toCongAvoid(Cwnd* cwnd) {
     cwnd->ackThisRound = 0; // Always clear before use
 }
 
-void _ackFastRecov(Cwnd* cwnd) {
+void _ackFastRecov(Cwnd* cwnd, uint32_t ack) {
     cwnd->window = cwnd->ssthresh;
     _clearDup(cwnd);
     _toCongAvoid(cwnd);
@@ -169,7 +167,7 @@ void _toFastRecovRetrans(Cwnd* cwnd) {
 }
 
 void initCwnd(Cwnd* cwnd) {
-    cwnd->window = 1;
+    cwnd->window = 4;
     cwnd->lastAck = -1;
     cwnd->dupAck = 0;
     cwnd->ssthresh = 4096;
@@ -180,12 +178,12 @@ void ackCwnd(Cwnd* cwnd, uint32_t ackNum) {
     if (ackNum == cwnd->lastAck) { // Dup Ack
         cwnd->state.dupAck(cwnd);
     } else {
+        cwnd->state.ack(cwnd, ackNum);
         cwnd->lastAck = ackNum;
-        cwnd->state.ack(cwnd);
     }
 }
 
-int confirmRetrans(Cwnd* cwnd) {
+int confirmThreeDups(Cwnd* cwnd) {
     if (cwnd->state.state = FAST_RECOV_RETRANS) {
         _toFastRecov(cwnd);
         return TRUE;

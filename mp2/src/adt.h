@@ -12,7 +12,7 @@
 
 typedef struct CongestState {
     char state;
-    void (*ack)(Cwnd*);
+    void (*ack)(Cwnd*, uint32_t);
     void (*dupAck)(Cwnd*);
 } CState;
 
@@ -27,14 +27,13 @@ typedef struct CongestionWindow {
 
 void initCwnd(Cwnd* cwnd);
 void ackCwnd(Cwnd* cwnd, uint32_t ackNum);
-int confirmRetrans(Cwnd* cwnd);
+int confirmThreeDups(Cwnd* cwnd);
 void timeoutCwnd(Cwnd* cwnd);
 size_t getCwnd(Cwnd* cwnd);
 
 typedef struct statistics {
     Cwnd cwnd;
-    size_t totalBytes;
-    size_t sentBytes;
+    size_t totalSeq;
     size_t sendBase;
     size_t nextSeq;
     int timerfd;
@@ -43,9 +42,8 @@ typedef struct statistics {
 } SenderStat;
 
 typedef struct diffStatistics {
-    Cwnd newCwnd;
     size_t sendBase;
-    char recvFin;
+    char threeDups;
 } DiffStat;
 
 int isCwndFull(SenderStat* stat);
@@ -63,8 +61,13 @@ double getLapse(timedSlot* slot, struct timespec now);
 void finish(timedSlot* slot);
 int isFinished(timedSlot* slot);
 
+typedef struct slot {
+    char* chunk;
+    uint16_t length;
+} Slot;
+
 typedef struct queue {
-    timedSlot slots[WINDOW];
+    Slot slots[WINDOW];
     size_t start;
     size_t end;
     size_t length;
