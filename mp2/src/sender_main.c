@@ -173,6 +173,7 @@ int sendpkts(int sockfd, const char* const file, SenderStat* stat, int* sockWrit
             }
             if (sent != len) {
                 warn("Not atomically sent");
+                fprintf(stderr, "%ld\n", sent);
                 exit(EXIT_FAILURE);
             } else {
                 startTimerIfNotRunning(&stat->timer, &defaultSpec);
