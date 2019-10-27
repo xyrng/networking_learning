@@ -181,7 +181,7 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
                 send_ack_packet(s, ack_pkt);
             }
 
-            if (packet->fin_byte == '1') {
+            if (packet->fin_byte == 1) {
                 break;
             }
         } while(1);
