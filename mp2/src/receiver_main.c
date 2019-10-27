@@ -52,7 +52,7 @@ int write_to_file(int fd, rdt_packet *packet) {
         }
         writed_size += round;
     } while (writed_size < total_size);
-    fprintf(stderr, "wriiten %d\n", packet->seq_num);
+    // fprintf(stderr, "wriiten %d\n", packet->seq_num);
     return 0;
 }
 
@@ -105,9 +105,9 @@ int recvPacket(int sockfd, rdt_packet* const packet) {
     socklen_t addr_len = sizeof(addr_container);
     struct sockaddr *from_addr = (struct sockaddr *) &addr_container;
 
-    fprintf(stderr,"recvPacket at line %d\n", __LINE__);
-    fprintf(stderr,"sockfd: %d\npacket_addr: %p", sockfd, packet);
-    fprintf(stderr,"packet->seq_num: %d\npacket->ack_num: %d", packet->seq_num, packet->ack_num);
+    // fprintf(stderr,"recvPacket at line %d\n", __LINE__);
+    // fprintf(stderr,"sockfd: %d\npacket_addr: %p", sockfd, packet);
+    // fprintf(stderr,"packet->seq_num: %d\npacket->ack_num: %d", packet->seq_num, packet->ack_num);
     size_t pkt_len = sizeof(rdt_packet);
     size_t numbytes;
     while ((numbytes = recvfrom(sockfd, packet, pkt_len, 0, from_addr, &addr_len)) == -1) {
@@ -116,7 +116,7 @@ int recvPacket(int sockfd, rdt_packet* const packet) {
         }
         diep("recvfrom");
     }
-    fprintf(stderr, "Received %zu bytes; Expect %zu bytes.\n", numbytes, pkt_len);
+    // fprintf(stderr, "Received %zu bytes; Expect %zu bytes.\n", numbytes, pkt_len);
     if (numbytes != pkt_len) {
         warn("Packet Reading Failer [Size]");
         return -1;
@@ -185,7 +185,7 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
                 send_ack_packet(s, &ack_pkt);
                 continue;
             }
-            fprintf(stderr,"received at line %d\n", __LINE__);
+            // fprintf(stderr,"received at line %d\n", __LINE__);
             // write to file or save to queue
             if (packet.seq_num == last_ack_num) {
                 if (write_to_file(write_file_fd, &packet) != 0) {
