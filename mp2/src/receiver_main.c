@@ -65,7 +65,8 @@ void send_ack_packet(int socket_fd, ack_packet *ack_pkt) {
     }
 }
 
-void check_and_sent_buffer(int write_fd, int socket_fd, uint32_t *seq_num, receiverQ *rec_queue) {
+int check_and_sent_buffer(int write_fd, int socket_fd, uint32_t *seq_num, receiverQ *rec_queue) {
+    int retval = 0;
     // maybe bug: uint32_t or int
     uint32_t ret_seq_num = *seq_num;
     // maybe bug: pointer++
@@ -73,6 +74,9 @@ void check_and_sent_buffer(int write_fd, int socket_fd, uint32_t *seq_num, recei
     ack_packet *ack_pkt = {0};
     while (rec_queue->buflen[ret_seq_num % WINDOW] == 1) {
         // write that packet to the file
+        if (temp_pkt->fin_byte == 1) {
+            retval = 1;
+        }
         if (write_to_file(write_fd, temp_pkt) != 0) {
             fprintf(stderr, "Write to file Failure.\n");
             exit(1);
@@ -85,6 +89,7 @@ void check_and_sent_buffer(int write_fd, int socket_fd, uint32_t *seq_num, recei
         temp_pkt = rec_queue->buffer + (ret_seq_num % WINDOW);
     }
     *seq_num = ret_seq_num;
+    return retval;
 }
 
 void map_to_queue(receiverQ *queue, rdt_packet *packet) {
@@ -125,6 +130,19 @@ int recvPacket(int sockfd, rdt_packet* const packet) {
     return 0;
 }
 
+void wait_for_break(int socket_fd, uint32_t last_ack_num) {
+    ack_packet *final_ack = {0};
+    final_ack->fin_byte = 1;
+    final_ack->ack_num = last_ack_num;
+    final_ack->seq_num = 0;
+    for (int i = 0; i < 45; i++) {
+        sendto(socket_fd, final_ack, sizeof(final_ack), 0,
+            (struct sockaddr *)&si_other, sizeof(si_other));
+        usleep(20000);
+        // TODO: how to break
+    }
+}
+
 void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
 
     slen = sizeof (si_other);
@@ -145,6 +163,7 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
 	/* Now receive data and send acknowledgements */
     receiverQ rec_queue = {0};
     uint32_t last_ack_num = 0;
+    int recv_fin_byte = 0;
     int write_file_fd;
     if ((write_file_fd = open(destinationFile, O_WRONLY | O_APPEND | O_CREAT)) != -1) {
         do {
@@ -170,7 +189,12 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
                     last_ack_num = packet->seq_num + 1;
                     build_ack_packet(ack_pkt, packet, last_ack_num);
                     send_ack_packet(s, ack_pkt);
-                    check_and_sent_buffer(write_file_fd, s, &last_ack_num, &rec_queue);
+                    if (check_and_sent_buffer(write_file_fd, s, &last_ack_num, &rec_queue) == 1) {
+                        recv_fin_byte = 1;
+                        close(write_file_fd);
+                        wait_for_break(s, last_ack_num);
+                        break;
+                    }
                 }
             } else if (packet->seq_num > last_ack_num) {
                 map_to_queue(&rec_queue, packet);
@@ -182,6 +206,9 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
             }
 
             if (packet->fin_byte == 1) {
+                recv_fin_byte = 1;
+                close(write_file_fd);
+                wait_for_break(s, last_ack_num);
                 break;
             }
         } while(1);
@@ -189,7 +216,9 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
         perror("Error");
     }
 
-    close(write_file_fd);
+    if (recv_fin_byte != 1) {
+        close(write_file_fd);
+    }
     close(s);
     printf("%s received.", destinationFile);
     return;
