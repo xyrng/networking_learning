@@ -24,14 +24,20 @@
 #include "constants.h"
 #include "adt.h"
 
-#define evsLen 1 << 8
+#define evsLen 2
 
 struct sockaddr_in si_other;
 int s, slen;
 
+const struct itimerspec defaultSpec = {{0}, {0, 20000000}}; // 20 ms RTT
+
 void diep(char *s) {
     perror(s);
     exit(EXIT_FAILURE);
+}
+
+void warn(const char* const s) {
+    fprintf(stderr, "[WARNING]: %s", s);
 }
 
 char* mapFile(const char* filename, size_t size) {
@@ -61,7 +67,7 @@ int initEpollPool(int sockfd, uint32_t sockEvent, int timerfd) {
 
     struct epoll_event tev;
     tev.data.fd = timerfd;
-    tev.events = EPOLLET | EPOLLIN;
+    tev.events = EPOLLIN;
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, timerfd, &tev)) {
         diep("Add Socket to Epoll");
     }
@@ -69,11 +75,86 @@ int initEpollPool(int sockfd, uint32_t sockEvent, int timerfd) {
     return epoll_fd;
 }
 
-int updateSockEvent(int epoll_fd, int* socket, uint32_t sockEvent) {
-    struct epoll_event sev;
-    sev.data.ptr = socket;
-    sev.events = sockEvent;
-    return epoll_ctl(epoll_fd, EPOLL_CTL_ADD, *socket, &sev);
+int recvAll(int sockfd, ack_packet* const pkts) {
+    struct sockaddr_storage addr_container = {0};
+    socklen_t addr_len = sizeof addr_container;
+    struct sockaddr* their_addr = &addr_container;
+    size_t pkt_len = sizeof(ack_packet);
+
+    for (ack_packet* it = pkts, *end = pkts + WINDOW; it < end; ++it) {
+        size_t numbytes;
+        while ((numbytes = recvfrom(sockfd, it, pkt_len, 0, 
+                their_addr, &addr_len)) == -1) {
+            if (errno == EINTR) {
+                continue;
+            } else if (errno == EWOULDBLOCK | EAGAIN) {
+                return it - pkts;
+            }
+            diep("recvfrom");
+        }
+        struct sockaddr_in* cast = their_addr;
+        if (numbytes != pkt_len) {
+            warn("Ack corrupted");
+            --it;
+        } else if (cast->sin_port != si_other.sin_port || cast->sin_addr.s_addr != si_other.sin_addr.s_addr) {
+            warn("Ignoring packets from nonrelevant addr");
+            --it;
+        }
+    }
+    return WINDOW;
+};
+
+uint64_t drain(int timerfd) {
+    uint64_t round = 0;
+    while (read(timerfd, &round, 8) == -1) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return round;
+        }
+        else if (errno != EINTR) {
+            diep("read timerfd");
+        }
+    }
+    return round;
+}
+
+void ackAll(ack_packet* pkts, size_t len, SenderStat* const currStat, DiffStat* const pending) {
+    pending->sendBase = currStat->sendBase;
+    for (ack_packet* it = pkts, *end = pkts + len; it < end; ++it) {
+        uint32_t ack = it->ack_num;
+        if (ack >= pending->sendBase) {
+            pending->sendBase = ack;
+            currStat->recvFin |= it->fin_byte;
+            // TODO: Move to outside?
+            ackCwnd(&currStat->cwnd, ack);
+        } else {
+            warn("Out of window ack from receiver. Ignored");
+        }
+    }
+    pending->threeDups = confirmThreeDups(&currStat->cwnd);
+}
+
+void merge(SenderStat* const stat, const DiffStat* const pending, int hasTimeout) {
+    stat->retrans = pending->threeDups;
+    if (stat->sendBase < pending->sendBase) { // Advanced, ignore old timer
+        stat->sendBase = pending->sendBase;
+        if (!stat->retrans) { 
+            if (stat->sendBase < stat->nextSeq) { // have unacked
+                startTimer(stat->timerfd);
+            } else {
+                stopTimer(stat->timerfd);
+            }
+        }
+    } else if (!stat->retrans && (stat->retrans = hasTimeout)) {
+        timeoutCwnd(&stat->cwnd);
+    }
+}
+
+int sendpackt(const char* const file, SenderStat* stat) {
+    for (const char *it = file + MAX_PAYLOAD_LEN * stat->nextSeq,
+                    *end = file + MAX_PAYLOAD_LEN * (stat->sendBase + getCwnd(&stat->cwnd));
+                    it < end; ++it) {
+    };
+    return 0;
 }
 
 void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* filename, unsigned long long int bytesToTransfer) {
@@ -101,16 +182,15 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
 
     /* Send data and receive acknowledgements on s*/
     SenderStat stat; initSenderStat(&stat, bytesToTransfer);
-    SenderQ q; init(&q);
     int epollFd = initEpollPool(&s, EPOLLIN | EPOLLOUT | EPOLLET, &stat.timerfd);
 
-    size_t totalBuffered = buffer(&q, &mFile, bytesToTransfer);
-    if (sendpackt(&q, &stat)) {
+    if (sendpackt(mFile, &stat)) {
         diep("sendpacket");
     }
 
     struct epoll_event evs[evsLen];
-    while(stat.sentBytes < bytesToTransfer) {
+    ack_packet pktBuffer[WINDOW];
+    while(stat.sendBase < stat.totalSeq) {
         int nfds;
         while ((nfds = epoll_wait(epollFd, evs, evsLen, -1)) == -1) {
             if (errno != EINTR) {
@@ -119,48 +199,44 @@ void reliablyTransfer(char* hostname, unsigned short int hostUDPport, char* file
             }
         }
 
+        int hasTimeout = FALSE;
+        int nPackets = 0;
         for (struct epoll_event *it = evs, *end = evs + nfds; it < end; ++it) {
             if (it->data.fd == s) { // Reading events of socket
                 if (it->events & EPOLLIN) { // Receive Ack
-                    // TODO: Read Data from socket
-                    struct sockaddr_in s_other;
+                    nPackets = recvAll(s, pktBuffer);
                 }
 
                 if (it->events & EPOLLOUT) {
                     sockWritable = 1;
                 }
-            } else { // TIMEOUT EVENT!!!!! BOOOOM
-                uint64_t round;
-                read_all(it->data.fd, &round, 8);
+            } else { 
+                uint64_t round = drain(it->data.fd);
+                if (round >= 1) {
+                    hasTimeout = TRUE;
+                } 
+                if (round > 1) {
+                    warn("Timeout multiple times");
+                }
             }
         }
 
-        // Process stat diff
-        if (sockWritable && !isCwndFull(&stat) && !isQFull(&q)) {
-            // Lazy buffering
-            size_t thisBuffered = buffer(&q, &mFile, bytesToTransfer - totalBuffered);
-            totalBuffered += thisBuffered;
+        if (nPackets) {
+            DiffStat diff;
+            ackAll(pktBuffer, nPackets, &stat, &diff);
+            merge(&stat, &diff, hasTimeout);
+        }
 
-            // sendpackt(&q, &stat)
+        // Process stat diff
+        if (sockWritable) {
+            if (stat.retrans) {
+                // retrans(mFile, &stat);
+            }
+            if (!allowSend(&stat)) {
+                // sendpackt(mFile, &stat)
+            }
         }
     }
-    // do {
-    //     if (/* buffer not full*/) {
-    //         buffer(q);
-    //     }
-    //     sendpackt(stat.cwnd);
-    //     acknum = waitforack(fd)
-    //     if （/*dup ack or timeout */) {
-    //         retransmit()
-    //         cut_cwnd()
-    //     } else {
-    //         // update stat:
-    //         // update cwnd
-    //         // update rtt
-    //         // update sendbase
-    //     }
-    // } while (stat.sentBytes < bytesToTransfer);
-
 
     printf("Closing the socket\n");
     close(s);
