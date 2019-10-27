@@ -10,36 +10,51 @@
 #include <stdint.h>
 #include "constants.h"
 
+typedef struct CongestState {
+    char state;
+    void (*ack)(Cwnd*);
+    void (*dupAck)(Cwnd*);
+} CState;
+
 typedef struct CongestionWindow {
     size_t window;
-    size_t ackThisRound;
+    size_t ackThisRound; // Used only in Congestion Avoidance
     size_t ssthresh;
+    size_t lastAck;
+    size_t dupAck;
+    CState state;
 } Cwnd;
 
+void initCwnd(Cwnd* cwnd);
+void ackCwnd(Cwnd* cwnd, uint32_t ackNum);
+int confirmRetrans(Cwnd* cwnd);
+void timeoutCwnd(Cwnd* cwnd);
 size_t getCwnd(Cwnd* cwnd);
-int _isFull(SenderStat* stat, Cwnd* cwnd);
 
 typedef struct statistics {
     Cwnd cwnd;
-    size_t recentAcks[3];
-    size_t unacked;
-    size_t estRttMs;
-    size_t devRttMs;
     size_t totalBytes;
     size_t sentBytes;
     size_t sendBase;
     size_t nextSeq;
     int timerfd;
+    char retrans;
+    char recvFin;
 } SenderStat;
 
-int ack(SenderStat* stat);
-int isCwndFull(SenderStat* stat);
+typedef struct diffStatistics {
+    Cwnd newCwnd;
+    size_t sendBase;
+    char recvFin;
+} DiffStat;
 
+int isCwndFull(SenderStat* stat);
 int initSenderStat(SenderStat* stat, size_t totalBytes);
 
 typedef struct timedSlot {
     char* chunk;
     uint16_t length;
+    int timed;
     struct timespec timestamp;
 } timedSlot;
 
@@ -59,3 +74,14 @@ void initSenderQ(SenderQ* q);
 int isQFull(SenderQ* q);
 size_t buffer(SenderQ* q, const char** const bufferPtr, const size_t toBuffer);
 int sweep(SenderQ* q);
+
+typedef struct Summary {
+    int threeDup;
+    size_t ackBases[3]; // Track recent 3 acks
+} AckSummary;
+
+typedef struct ack_packet {
+    uint32_t seq_num;
+    uint32_t ack_num;
+    char     fin_byte;
+} ack_packet;
