@@ -1,10 +1,15 @@
 /*
  * File:   receiver_main.c
+<<<<<<< HEAD
  * Author:
+||||||| merged common ancestors
+ * Author: 
+=======
+ * Author: nonsense
+>>>>>>> shared
  *
- * Created on
+ * Created on Oct 6, 2019
  */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,8 +20,14 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <pthread.h>
+<<<<<<< HEAD
 #include <adt.h>
 
+||||||| merged common ancestors
+
+=======
+#include "constants.h"
+>>>>>>> shared
 
 
 struct sockaddr_in si_me, si_other;
@@ -34,7 +45,12 @@ void parse_packet(char* buff, rdt_packet* packet, ssize_t size) {
 
 
 void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
+<<<<<<< HEAD
 
+||||||| merged common ancestors
+    
+=======
+>>>>>>> shared
     slen = sizeof (si_other);
 
 
@@ -50,6 +66,7 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
         diep("bind");
 
 
+<<<<<<< HEAD
 	/* Now receive data and send acknowledgements */
     // receive from socket
 
@@ -78,8 +95,18 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
     } while(1)
 
     fclose(fp);
+||||||| merged common ancestors
+	/* Now receive data and send acknowledgements */    
+
+=======
+    /* Now receive data and send acknowledgements */
+    while (1) {
+
+    }
+
+>>>>>>> shared
     close(s);
-	printf("%s received.", destinationFile);
+    printf("%s received.", destinationFile);
     return;
 }
 
