@@ -5,7 +5,7 @@
  */
 #pragma once
 
-#define MAX_PAYLOAD_LEN 1024
+#define MAX_PAYLOAD_LEN 1444
 #define WINDOW 4096
 #define TRUE 1
 #define FALSE 0
