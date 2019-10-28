@@ -9,7 +9,7 @@
 #define WINDOW 16384
 #define TRUE 1
 #define FALSE 0
-#define RTT 40000000L
+#define RTT 80000000L
 
 #define SLOW_START 0
 #define CONGEST_AVOID 1
