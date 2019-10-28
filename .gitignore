@@ -57,3 +57,4 @@ vm/
 # mp2 test file
 mp2/src/sample_sender.c
 .vscode/
+*test*
