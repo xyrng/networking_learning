@@ -177,7 +177,6 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
     int write_file_fd;
     if ((write_file_fd = open(destinationFile, O_WRONLY | O_TRUNC | O_CREAT, 0666)) != -1) {
         do {
-
             rdt_packet packet = {0};
             ack_packet ack_pkt = {0};
             if (recvPacket(s, &packet) != 0){
@@ -199,8 +198,6 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
                     exit(1);
                 } else {
                     last_ack_num = packet.seq_num + 1;
-                    build_ack_packet(&ack_pkt, &packet, last_ack_num);
-                    send_ack_packet(s, &ack_pkt);
                     if (packet.fin_byte == 1) {
                         recv_fin_byte = 1;
                         close(write_file_fd);
@@ -213,6 +210,8 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
                         wait_for_break(s, last_ack_num);
                         break;
                     }
+                    // build_ack_packet(&ack_pkt, &packet, last_ack_num);
+                    // send_ack_packet(s, &ack_pkt);
                 }
             } else if (packet.seq_num > last_ack_num) {
                 map_to_queue(&rec_queue, &packet);
