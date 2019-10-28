@@ -66,7 +66,7 @@ void send_ack_packet(int socket_fd, ack_packet *ack_pkt) {
     }
 }
 
-int check_and_sent_buffer(int write_fd, int socket_fd, uint32_t *seq_num, receiverQ *rec_queue) {
+int check_and_sent_buffer(int write_fd, int socket_fd, uint32_t *seq_num, receiverQ *rec_queue, rdt_packet *pkt) {
     int retval = 0;
     uint32_t ret_seq_num = *seq_num;
     // send accumulative ack
@@ -75,9 +75,16 @@ int check_and_sent_buffer(int write_fd, int socket_fd, uint32_t *seq_num, receiv
     while (rec_queue->buflen[last_ack_num % WINDOW] == 1) {
         last_ack_num++;
     }
-    rdt_packet *last_pkt = rec_queue->buffer + ((last_ack_num - 1) % WINDOW);
-    build_ack_packet(&ack_pkt, last_pkt, last_ack_num);
-    send_ack_packet(socket_fd, &ack_pkt);
+
+    if (last_ack_num > ret_seq_num) {
+        rdt_packet *last_pkt = rec_queue->buffer + ((last_ack_num - 1) % WINDOW);
+        build_ack_packet(&ack_pkt, last_pkt, last_ack_num);
+        send_ack_packet(socket_fd, &ack_pkt);
+    } else {
+        build_ack_packet(&ack_pkt, pkt, last_ack_num);
+        send_ack_packet(socket_fd, &ack_pkt);
+    }
+
     // write buffer to file
     rdt_packet *temp_pkt = rec_queue->buffer + (ret_seq_num % WINDOW);
     while (rec_queue->buflen[ret_seq_num % WINDOW] == 1) {
@@ -204,7 +211,7 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
                         wait_for_break(s, last_ack_num);
                         break;
                     }
-                    if (check_and_sent_buffer(write_file_fd, s, &last_ack_num, &rec_queue) == 1) {
+                    if (check_and_sent_buffer(write_file_fd, s, &last_ack_num, &rec_queue, &packet) == 1) {
                         recv_fin_byte = 1;
                         close(write_file_fd);
                         wait_for_break(s, last_ack_num);
