@@ -5,8 +5,8 @@
  */
 #pragma once
 
-#define MAX_PAYLOAD_LEN 256
-#define WINDOW 16384
+#define MAX_PAYLOAD_LEN 1444
+#define WINDOW 4096
 #define TRUE 1
 #define FALSE 0
 #define RTT 80000000L
