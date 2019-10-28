@@ -94,18 +94,18 @@ void initCwnd(Cwnd* cwnd) {
 }
 
 void ackCwnd(Cwnd* cwnd, uint32_t ackNum) {
-    size_t orig = cwnd->window;
-    int state = cwnd->state.state;
+    // size_t orig = cwnd->window;
+    // int state = cwnd->state.state;
     if (ackNum == cwnd->lastAck) { // Dup Ack
         cwnd->state.dupAck(cwnd);
     } else {
         cwnd->state.ack(cwnd, ackNum);
         cwnd->lastAck = ackNum;
     }
-    if (orig > cwnd->window) {
-        fprintf(stderr, "orig: %d now: %d, state: %d, newState: %d, ack: %d, lastack: %d, dupack: %d, ackthisround: %d\n", 
-            orig, cwnd->window, state, cwnd->state.state, ackNum, cwnd->lastAck, cwnd->dupAck, cwnd->ackThisRound);
-    }
+    // if (orig > cwnd->window) {
+    //     fprintf(stderr, "orig: %d now: %d, state: %d, newState: %d, ack: %d, lastack: %d, dupack: %d, ackthisround: %d\n", 
+    //         orig, cwnd->window, state, cwnd->state.state, ackNum, cwnd->lastAck, cwnd->dupAck, cwnd->ackThisRound);
+    // }
 }
 
 int confirmThreeDups(Cwnd* cwnd) {
