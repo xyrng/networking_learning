@@ -98,16 +98,13 @@ class Link_State {
                 }
                 Node *cur = graph.find(cur_id)->second;
                 (*distanceToRoot).erase(cur_id);
-                // cout <<  __LINE__ << endl;
                 for (int i = 0; i < cur->neibours.size(); i++) {
-                    // cout << "i: " << i << endl;
                     int nei = cur->neibours[i];
                     // cout << "nei_id: " << nei << endl;
                     // cout << (it != visited.end()) << endl;
 					if (visited.find(nei) != visited.end()) {
                         continue;
                     }
-                    // cout << "nei_id_pass_visited: " << nei << endl;
 					if (dist + cur->get_edge_cost(nei) < (*distanceToRoot).find(nei)->second){
                         auto prev_itr = (*prevs).find(nei);
                         if (prev_itr != (*prevs).end()) {
@@ -120,28 +117,36 @@ class Link_State {
 					}
 				}
             }
-            // cout << "totalDistance put id: " << this->id << " **********" << endl;
+
+            if (totalDistance.find(this->id) != totalDistance.end()) {
+                unordered_map<int, int> *old_dist = totalDistance[this->id];
+                unordered_map<int, int> *old_prev = prevOfThatNode[this->id];
+                for (unordered_map<int,int>::iterator itr = recordDist->begin(); itr != recordDist->end(); itr++) {
+                    int to_node = itr->first;
+                    cout << "from: " << this->id << " to: " << to_node << " (*prevs)[to_node]: " << (*prevs)[to_node] << endl;
+                    cout << "from: " << this->id << " to: " << to_node << " (*old_prev)[to_node]: " << (*old_prev)[to_node] << endl;
+                    if ((*old_dist).find(to_node) != (*old_dist).end() 
+                        && (*old_dist)[to_node] == itr->second
+                        && (*old_prev)[to_node] < (*prevs)[to_node]) {
+                        (*prevs)[to_node] = (*old_prev)[to_node];
+                    }
+                }
+                // totalDistance.erase(this->id);
+                // prevOfThatNode.erase(this->id);
+            }
+
+
             totalDistance[this->id] = recordDist;
             prevOfThatNode[this->id] = prevs; 
-            // cout << __LINE__ << endl;
             int i = 0;
             for(map<int, Node*>::iterator itr = graph.begin(); itr != graph.end(); itr++) {
-                // cout << "**********************" << endl;
-                // cout << "i: " << i << endl;
 				auto prev_itr = (*prevs).find(itr->first);
                 if (itr->first == this->id || prev_itr == (*prevs).end()) continue;
 				int next = itr->first;
-                // cout << "i: " << i << endl;
-				for (int p = (*prevs).find(next)->second; p != this->id; next = p, p = (*prevs).find(p)->second) {
-                    // cout << "p: " << p << endl;
-                    // cout << "next: " << next << endl;
-                }
-                // cout << "i: " << i << endl;
+				for (int p = (*prevs).find(next)->second; p != this->id; next = p, p = (*prevs).find(p)->second);
 				this->forwarding_table[itr->first] = next;
-                // cout << "i: " << i << endl;
                 i++;
 			}
-            // cout << __LINE__ << endl;
         }
 
         int get_idx_of_min_cost(unordered_map<int, int>* map) {
@@ -152,7 +157,7 @@ class Link_State {
 					min = itr->second;
 					ret = itr->first;
 				} else if (itr->second == min) {
-                    if (ret == -1 || ret < itr->first) {
+                    if (ret == -1 || itr->first < ret) {
                         ret = itr->first;
                     }
 				}
