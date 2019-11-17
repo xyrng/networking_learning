@@ -10,6 +10,9 @@ int main(int argc, char** argv) {
         return -1;
     }
 
+    // MUTE argv warning
+    (void) argv;
+
     FILE *fpOut;
     fpOut = fopen("output.txt", "w");
     fclose(fpOut);
