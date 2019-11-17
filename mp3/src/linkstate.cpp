@@ -271,11 +271,15 @@ class Link_State {
                 fprintf(file_out, "from %d to %d cost %d hops ", node1, node2, dist);
                 vector<int> hops = next_hops(node1, node2);
                 // cout << __LINE__ << endl;
-                for (vector<int>::iterator itr = hops.end() - 1; itr >= hops.begin(); itr--) {
+                for (vector<int>::iterator itr = hops.end() - 2; itr >= hops.begin(); itr--) {
                     fprintf(file_out, "%d ", *itr);
                 }
                 // cout << __LINE__ << endl;
-                fprintf(file_out, "message %s\n", splitted[2].c_str());
+                fprintf(file_out, "message");
+                for (vector<string>::iterator it = splitted.begin() + 2; it != splitted.end(); it++) {
+                    fprintf(file_out, " %s", it->c_str());
+                }
+                fprintf(file_out, "\n");
                 // cout << __LINE__ << endl;
             } else {
                 // cout << "dist == INT_MAX" << endl;
