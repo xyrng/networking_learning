@@ -1,13 +1,16 @@
-#include<stdio.h>
-#include<string.h>
-#include<stdlib.h>
-#include<unordered_map>
-#include<vector>
-#include<iostream>
-#include<string>
-#include<fstream>
-#include<map> 
-#include<set>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <cstdint>
+#include <limits>
+#include <unordered_map>
+#include <vector>
+#include <algorithm>
+#include <iostream>
+#include <string>
+#include <fstream>
+#include <map> 
+#include <set>
 
 using namespace std;
 
@@ -100,7 +103,6 @@ class Link_State {
                     // cout << "i: " << i << endl;
                     int nei = cur->neibours[i];
                     // cout << "nei_id: " << nei << endl;
-                    auto it = visited.find(nei);
                     // cout << (it != visited.end()) << endl;
 					if (visited.find(nei) != visited.end()) {
                         continue;
