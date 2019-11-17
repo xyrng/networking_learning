@@ -52,16 +52,10 @@ class Link_State {
         }
 
         void add_or_updateNei(int nei_id, int edgeCost) {
-            // cout << "add_or_updateNei: " << __LINE__ << endl;
-            // cout << "this->edges: " << &this->edges << endl;
-            // cout << "nei_id: " << nei_id << endl;
             auto it = edges.find(nei_id);
-            // cout << "error: " << __LINE__ << endl;
             if (it != this->edges.end()) {  // found
-                // cout << "add_or_updateNei update, this id: " << this->id << "; nei_id: " << nei_id << endl;
                 it->second = edgeCost; // TODO: Look up update
             } else { // new comer
-                // cout << "add_or_updateNei new comer, this id: " << this->id << "; nei_id: " << nei_id << endl;
                 this->neibours.push_back(nei_id);
                 this->edges[nei_id] = edgeCost;
             }
@@ -243,9 +237,10 @@ class Link_State {
         for (map<int, Node*>::iterator itr_i = graph.begin(); itr_i != graph.end(); itr_i++) {
             for (map<int, Node*>::iterator itr_j = graph.begin(); itr_j != graph.end(); itr_j++) {
                 int next = itr_i->second->forwarding_hop(itr_j->first);
+                int cost = (*(totalDistance[itr_i->first]))[itr_j->first];
                 if (next != -1) {
-                    fprintf(file_out, "%d %d %d\n", itr_i->first, itr_j->first, next);
-                    // cout << itr_i->first << " " <<  itr_j->first << " " <<  next << endl;
+                    // dest_id    next_hop    cost
+                    fprintf(file_out, "%d %d %d\n", itr_j->first, next, cost);
                 } 
             }
         }
@@ -259,35 +254,23 @@ class Link_State {
         string line;
         ifstream msgfile(message_file);
         while (getline(msgfile, line)) {
-            // cout << "line: " << line << endl;
             vector<string> splitted = str_split(line);
-            // cout << __LINE__ << endl;
             int node1 = stoi(splitted[0]); // from
-            // cout << "node1: " << node1 << endl;
             int node2 = stoi(splitted[1]); // to
-            // cout << "node2: " << node2 << endl;
-            // cout << "totalDistance[node1]: " << &totalDistance[node1] << endl;
             unordered_map<int, int>* distance = totalDistance[node1];
-            // cout << "distance: " << &distance << endl;
             int dist = (*distance)[node2];
-            // cout << "dist: " << dist << endl;
             if (dist != INT_MAX) {
-                // cout << "dist != INT_MAX" << endl;
                 fprintf(file_out, "from %d to %d cost %d hops ", node1, node2, dist);
                 vector<int> hops = next_hops(node1, node2);
-                // cout << __LINE__ << endl;
                 for (vector<int>::iterator itr = hops.end() - 2; itr >= hops.begin(); itr--) {
                     fprintf(file_out, "%d ", *itr);
                 }
-                // cout << __LINE__ << endl;
                 fprintf(file_out, "message");
                 for (vector<string>::iterator it = splitted.begin() + 2; it != splitted.end(); it++) {
                     fprintf(file_out, " %s", it->c_str());
                 }
                 fprintf(file_out, "\n");
-                // cout << __LINE__ << endl;
             } else {
-                // cout << "dist == INT_MAX" << endl;
                 fprintf(file_out, "from %d to %d cost infinite hops unreachable message %s\n", node1, node2, splitted[2].c_str());
             }
         }
