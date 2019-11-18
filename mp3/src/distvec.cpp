@@ -125,7 +125,7 @@ class Distance_Vector {
     map<int, Node*> graph;
 
     // including update
-    void build_graph(string input) {
+    void build_graph(string input, bool incremental) {
         vector<string> splitted = str_split(input);
         
         int node1 = stoi(splitted[0]); // TODO: free
@@ -144,6 +144,9 @@ class Distance_Vector {
             if (dist > 0) {
                 graph.find(node1)->second->add_or_updateNei(node2, dist);
             }
+            if (incremental) {
+                initial_two_node_dist(node1);
+            }
         }
         auto it2 = graph.find(node2);
         if (it2 != graph.end()) {
@@ -157,6 +160,10 @@ class Distance_Vector {
             graph[node2] = new_node;
             if (dist > 0) {
                 graph.find(node2)->second->add_or_updateNei(node1, dist);
+            }
+            if (incremental) {
+                initial_two_node_dist(node2);
+                cout << graph[4]->distanceToThatNode[5] << endl;
             }
         }
     }
@@ -253,26 +260,14 @@ class Distance_Vector {
         }
     }
 
-    void initial_two_node_dist(string input) {
-        vector<string> splitted = str_split(input);
-        int node1 = stoi(splitted[0]);
-        int node2 = stoi(splitted[1]);
-        if (graph.find(node1) == graph.end()) {
-            for (auto itr_i = graph.begin(); itr_i != graph.end(); itr_i++){
-                if (itr_i->first != node1) {
-                    itr_i->second->initial_distance_of_node(node1);
-                    graph[node1]->initial_distance_of_node(itr_i->first);
-                }
+    void initial_two_node_dist(int node1) {
+        for (auto itr_i = graph.begin(); itr_i != graph.end(); itr_i++){
+            if (itr_i->first != node1) {
+                itr_i->second->initial_distance_of_node(node1);
+                graph[node1]->initial_distance_of_node(itr_i->first);
             }
         }
-        if (graph.find(node2) == graph.end()) {
-            for (auto itr_i = graph.begin(); itr_i != graph.end(); itr_i++){
-                if (itr_i->first != node2) {
-                    itr_i->second->initial_distance_of_node(node2);
-                    graph[node2]->initial_distance_of_node(itr_i->first);
-                }
-            }
-        }
+        
     }
 
     // TODO: problems track:
@@ -305,7 +300,7 @@ int main(int argc, char** argv) {
     ifstream topofile(argv[1]);
     while(getline(topofile, line)) {
         // cout << line << endl;
-        dv.build_graph(line);
+        dv.build_graph(line, false);
     }
     // build forwarding table
     dv.initial_all_dist();
@@ -317,8 +312,7 @@ int main(int argc, char** argv) {
     string c_line;
     while (getline(changefile, c_line)) {
         // TODO: update?
-        dv.build_graph(c_line);
-        dv.initial_two_node_dist(c_line);
+        dv.build_graph(c_line, true);
         dv.build_nodes_forwarding_tables();
         dv.print_results(fpOut, argv[2]);
     }
