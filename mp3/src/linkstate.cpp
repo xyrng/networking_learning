@@ -25,7 +25,7 @@ class Link_State {
 
         Node(int id) {
             this->id = id;
-            forwarding_table[this->id] = id;
+            forwarding_table[this->id] = this->id;
         }
 
         ~Node() {
@@ -84,10 +84,16 @@ class Link_State {
             while (visited.size() < graph.size()) {
                 int cur_id = get_idx_of_min_cost(distanceToRoot);
                 visited.insert(cur_id);
+                // cout << "cur_id: " << cur_id << endl;
                 int dist = (*distanceToRoot).find(cur_id)->second;
+                // cout << "cur_id_dist: " << dist << endl;
+                // cout << "visited.size(): " << visited.size() << endl;
+                // cout << "graph.size(): " << graph.size() << endl;
                 (*recordDist)[cur_id] = dist;
                 if (dist == INT_MAX) {
                     this->forwarding_table[cur_id] = -1;
+                    (*prevs)[cur_id] = -1;
+                    (*distanceToRoot).erase(cur_id);
                     continue;
                 }
                 Node *cur = graph.find(cur_id)->second;
@@ -128,19 +134,20 @@ class Link_State {
                 // totalDistance.erase(this->id);
                 // prevOfThatNode.erase(this->id);
             }
-
+            // cout << __LINE__ << endl;
 
             totalDistance[this->id] = recordDist;
             prevOfThatNode[this->id] = prevs; 
             int i = 0;
             for(map<int, Node*>::iterator itr = graph.begin(); itr != graph.end(); itr++) {
 				auto prev_itr = (*prevs).find(itr->first);
-                if (itr->first == this->id || prev_itr == (*prevs).end()) continue;
+                if (itr->first == this->id || (*prevs)[itr->first] == -1 || prev_itr == (*prevs).end()) continue;
 				int next = itr->first;
 				for (int p = (*prevs).find(next)->second; p != this->id; next = p, p = (*prevs).find(p)->second);
 				this->forwarding_table[itr->first] = next;
                 i++;
 			}
+            // cout << __LINE__ << endl;
         }
 
         int get_idx_of_min_cost(unordered_map<int, int>* map) {
@@ -233,7 +240,7 @@ class Link_State {
 
     void print_results(FILE *file_out, char *message_file) {
         // forwarding tables
-        // // cout << __LINE__ << endl;
+        // cout << __LINE__ << endl;
         for (map<int, Node*>::iterator itr_i = graph.begin(); itr_i != graph.end(); itr_i++) {
             for (map<int, Node*>::iterator itr_j = graph.begin(); itr_j != graph.end(); itr_j++) {
                 int next = itr_i->second->forwarding_hop(itr_j->first);
