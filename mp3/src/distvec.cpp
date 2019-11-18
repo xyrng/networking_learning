@@ -59,6 +59,7 @@ class Distance_Vector {
         }
 
         void add_or_updateNei(int nei_id, int edgeCost) {
+            be_updated = true;
             auto it = edges.find(nei_id);
             if (it != this->edges.end()) {  // found
                 it->second = edgeCost; // TODO: Look up update
@@ -99,7 +100,6 @@ class Distance_Vector {
                 // nei_updates.first: nei_id   itr->first: dest_id   itr->second: given_cost
                 pair<int, unordered_map<int,int> > nei_updates = updates_from_nei[i];
                 for (auto itr = nei_updates.second.begin(); itr != nei_updates.second.end(); itr++) {
-                    cout << __LINE__ << endl;
                     int nei_edge = get_edge_cost(nei_updates.first);
                     int given_dist = itr->second;
                     if (nei_edge == INT_MAX || given_dist == INT_MAX) continue; 
@@ -191,7 +191,6 @@ class Distance_Vector {
 
     void print_results(FILE *file_out, char *message_file) {
         // forwarding tables
-        cout << __LINE__ << endl;
         for (map<int, Node*>::iterator itr_i = graph.begin(); itr_i != graph.end(); itr_i++) {
             // itr_i->first: from     itr_j->first: to
             Node *from_node = itr_i->second;
@@ -204,12 +203,10 @@ class Distance_Vector {
                 }
             }
         }
-        cout << __LINE__ << endl;
         print_messages(file_out, message_file);
     }
 
     void print_messages(FILE *file_out, char *message_file) {
-        cout << __LINE__ << endl;
         string line;
         ifstream msgfile(message_file);
         while (getline(msgfile, line)) {
@@ -219,12 +216,9 @@ class Distance_Vector {
             Node *from_node = graph[node1];
 
             int dist = from_node->distanceToThatNode[node2];
-            cout << __LINE__ << endl;
             if (dist != INT_MAX && dist >= 0) {
                 fprintf(file_out, "from %d to %d cost %d hops ", node1, node2, dist);
-                cout << __LINE__ << endl;
                 vector<int> hops = next_hops(node1, node2);
-                cout << __LINE__ << endl;
                 for (int i = 0 ; i < hops.size(); i++) {
                     fprintf(file_out, "%d ", hops[i]);
                 }
@@ -234,11 +228,9 @@ class Distance_Vector {
                 }
                 fprintf(file_out, "\n");
             } else {
-                cout << __LINE__ << endl;
                 fprintf(file_out, "from %d to %d cost infinite hops unreachable message %s\n", node1, node2, splitted[2].c_str());
             }
         }
-        cout << __LINE__ << endl;
     }
 
     void initial_all_dist() {
@@ -251,33 +243,46 @@ class Distance_Vector {
         }
     }
 
-    void initial_one_node_dist() {
-
+    void initial_two_node_dist(string input) {
+        vector<string> splitted = str_split(input);
+        int node1 = stoi(splitted[0]);
+        int node2 = stoi(splitted[1]);
+        if (graph.find(node1) == graph.end()) {
+            for (auto itr_i = graph.begin(); itr_i != graph.end(); itr_i++){
+                if (itr_i->first != node1) {
+                    itr_i->second->initial_distance_of_node(node1);
+                    graph[node1]->initial_distance_of_node(itr_i->first);
+                }
+            }
+        }
+        if (graph.find(node2) == graph.end()) {
+            for (auto itr_i = graph.begin(); itr_i != graph.end(); itr_i++){
+                if (itr_i->first != node2) {
+                    itr_i->second->initial_distance_of_node(node2);
+                    graph[node2]->initial_distance_of_node(itr_i->first);
+                }
+            }
+        }
     }
 
     // TODO: problems track:
     vector<int> next_hops(int from, int to) {
-        cout << "from: " << from << " to: " << to << endl;
         vector<int> result;
         Node *curr = graph[from];
-        cout << __LINE__ << endl;
         do{
-            cout << "curr->id: " << curr->id << endl;
             result.push_back(curr->id);
             curr = graph[curr->forwarding_table[to]];
          } while (curr->id != to);
-        cout << __LINE__ << endl;
         return result;
     }
 };
 
 int main(int argc, char** argv) {
-    printf("Number of arguments: %d", argc);
+    printf("Number of arguments: %d\n", argc);
     if (argc != 4) {
         printf("Usage: ./distvec topofile messagefile changesfile\n");
         return -1;
     }
-    cout << __LINE__ << endl;
     // MUTE argv warning
     (void) argv;
 
@@ -289,17 +294,14 @@ int main(int argc, char** argv) {
     string line;
     ifstream topofile(argv[1]);
     while(getline(topofile, line)) {
-        cout << line << endl;
+        // cout << line << endl;
         dv.build_graph(line);
     }
-    cout << __LINE__ << endl;
     // build forwarding table
     dv.initial_all_dist();
     dv.build_nodes_forwarding_tables();
-    cout << __LINE__ << endl;
     // print tje 1st forwarding table and message 
     dv.print_results(fpOut, argv[2]);
-    cout << __LINE__ << endl;
     // print based on change
     ifstream changefile(argv[3]);
     string c_line;
@@ -310,7 +312,6 @@ int main(int argc, char** argv) {
         dv.print_results(fpOut, argv[2]);
     }
 
-    cout << __LINE__ << endl;
 
     fclose(fpOut);
 
