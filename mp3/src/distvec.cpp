@@ -137,7 +137,6 @@ class Distance_Vector {
                 it1->second->add_or_updateNei(node2, dist);
             } else {
                 it1->second->remove_nei(node2);
-                initial_all_dist();
             }
         } else {
             Node* new_node = new Node(node1);
@@ -146,7 +145,7 @@ class Distance_Vector {
                 graph.find(node1)->second->add_or_updateNei(node2, dist);
             }
             if (incremental) {
-                initial_two_node_dist(node1);
+                // initial_two_node_dist(node1);
             }
         }
         auto it2 = graph.find(node2);
@@ -163,10 +162,11 @@ class Distance_Vector {
                 graph.find(node2)->second->add_or_updateNei(node1, dist);
             }
             if (incremental) {
-                initial_two_node_dist(node2);
-                cout << graph[4]->distanceToThatNode[5] << endl;
+                // initial_two_node_dist(node2);
+                // cout << graph[4]->distanceToThatNode[5] << endl;
             }
         }
+        initial_all_dist();
     }
 
     vector<string> str_split(string input) {
@@ -304,7 +304,7 @@ int main(int argc, char** argv) {
         dv.build_graph(line, false);
     }
     // build forwarding table
-    dv.initial_all_dist();
+    // dv.initial_all_dist();
     dv.build_nodes_forwarding_tables();
     // print tje 1st forwarding table and message 
     dv.print_results(fpOut, argv[2]);
