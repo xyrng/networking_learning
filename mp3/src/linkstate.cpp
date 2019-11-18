@@ -106,12 +106,7 @@ class Link_State {
                         continue;
                     }
 					if (dist + cur->get_edge_cost(nei) < (*distanceToRoot).find(nei)->second){
-                        auto prev_itr = (*prevs).find(nei);
-                        if (prev_itr != (*prevs).end()) {
-                            prev_itr->second = cur_id;
-                        } else {
-                            (*prevs)[nei] = cur_id;
-                        }
+                        (*prevs)[nei] = cur_id;
 						auto dis_itr = (*distanceToRoot).find(nei);
 						dis_itr->second = dist + cur->get_edge_cost(nei);
 					}
@@ -127,7 +122,8 @@ class Link_State {
                     // cout << "from: " << this->id << " to: " << to_node << " (*old_prev)[to_node]: " << (*old_prev)[to_node] << endl;
                     if ((*old_dist).find(to_node) != (*old_dist).end() 
                         && (*old_dist)[to_node] == itr->second
-                        && (*old_prev)[to_node] < (*prevs)[to_node]) {
+                        && (*old_prev)[to_node] < (*prevs)[to_node]
+                        && still_connected(*old_prev, graph, to_node)) {
                         (*prevs)[to_node] = (*old_prev)[to_node];
                     }
                 }
@@ -149,6 +145,19 @@ class Link_State {
 			}
             // cout << __LINE__ << endl;
         }
+
+        bool still_connected(unordered_map<int, int>& old_prev, map<int, Node*>& graph, int to) {
+            for (auto node_to = graph.find(to); to != this->id && node_to != graph.end();) {
+                if (node_to->second->edges.find(old_prev[to]) != node_to->second->edges.end()) {
+                    to = old_prev[to];
+                    node_to = graph.find(to);
+                } else {
+                    return false;
+                }
+            }
+            return to == this->id;
+        }
+
 
         int get_idx_of_min_cost(unordered_map<int, int>* map) {
             int min = INT_MAX;
