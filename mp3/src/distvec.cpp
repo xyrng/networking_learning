@@ -228,7 +228,11 @@ class Distance_Vector {
                 }
                 fprintf(file_out, "\n");
             } else {
-                fprintf(file_out, "from %d to %d cost infinite hops unreachable message %s\n", node1, node2, splitted[2].c_str());
+                fprintf(file_out, "from %d to %d cost infinite hops unreachable message", node1, node2);
+                for (vector<string>::iterator it = splitted.begin() + 2; it != splitted.end(); it++) {
+                    fprintf(file_out, " %s", it->c_str());
+                }
+                fprintf(file_out, "\n");
             }
         }
     }
