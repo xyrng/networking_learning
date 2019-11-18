@@ -137,6 +137,7 @@ class Distance_Vector {
                 it1->second->add_or_updateNei(node2, dist);
             } else {
                 it1->second->remove_nei(node2);
+                initial_all_dist();
             }
         } else {
             Node* new_node = new Node(node1);
