@@ -29,7 +29,7 @@ class Distance_Vector {
 
         Node(int id) {
             this->id = id;
-            forwarding_table[this->id] = 0;
+            forwarding_table[this->id] = this->id;
             this->distanceToThatNode[this->id] = 0;
             be_updated = true;
         }
@@ -108,6 +108,11 @@ class Distance_Vector {
                         this->distanceToThatNode[itr->first] = new_dist;
                         this->forwarding_table[itr->first] = nei_updates.first;
                         is_changed = true;
+                    } else if (this->distanceToThatNode[itr->first] == new_dist) {
+                        if (this->forwarding_table[itr->first] > nei_updates.first) {
+                            this->forwarding_table[itr->first] = nei_updates.first;
+                            is_changed = true;
+                        }
                     }
                 }
             }
@@ -172,6 +177,7 @@ class Distance_Vector {
     // including update
     void build_nodes_forwarding_tables() {
         map<int, Node*>::iterator itr; 
+        cout << "build -- graph.size(): " << graph.size() << endl;
         while (1) {
             //update 
             int count = 0;
@@ -312,6 +318,7 @@ int main(int argc, char** argv) {
     while (getline(changefile, c_line)) {
         // TODO: update?
         dv.build_graph(c_line);
+        dv.initial_two_node_dist(c_line);
         dv.build_nodes_forwarding_tables();
         dv.print_results(fpOut, argv[2]);
     }
