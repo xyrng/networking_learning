@@ -100,40 +100,38 @@ class Link_State {
                 (*distanceToRoot).erase(cur_id);
                 for (int i = 0; i < cur->neibours.size(); i++) {
                     int nei = cur->neibours[i];
-                    // cout << "nei_id: " << nei << endl;
-                    // cout << (it != visited.end()) << endl;
+                    // // cout << "nei_id: " << nei << endl;
+                    // // cout << (it != visited.end()) << endl;
 					if (visited.find(nei) != visited.end()) {
                         continue;
                     }
-					if (dist + cur->get_edge_cost(nei) < (*distanceToRoot).find(nei)->second){
-                        auto prev_itr = (*prevs).find(nei);
-                        if (prev_itr != (*prevs).end()) {
-                            prev_itr->second = cur_id;
-                        } else {
-                            (*prevs)[nei] = cur_id;
-                        }
+                    int old_dist = (*distanceToRoot).find(nei)->second;
+                    int new_dist = dist + cur->get_edge_cost(nei);
+                    if (new_dist < old_dist || (new_dist == old_dist && cur_id < (*prevs)[nei])) {
+                        (*prevs)[nei] = cur_id;
 						auto dis_itr = (*distanceToRoot).find(nei);
 						dis_itr->second = dist + cur->get_edge_cost(nei);
 					}
 				}
             }
 
-            if (totalDistance.find(this->id) != totalDistance.end()) {
-                unordered_map<int, int> *old_dist = totalDistance[this->id];
-                unordered_map<int, int> *old_prev = prevOfThatNode[this->id];
-                for (unordered_map<int,int>::iterator itr = recordDist->begin(); itr != recordDist->end(); itr++) {
-                    int to_node = itr->first;
-                    // cout << "from: " << this->id << " to: " << to_node << " (*prevs)[to_node]: " << (*prevs)[to_node] << endl;
-                    // cout << "from: " << this->id << " to: " << to_node << " (*old_prev)[to_node]: " << (*old_prev)[to_node] << endl;
-                    if ((*old_dist).find(to_node) != (*old_dist).end() 
-                        && (*old_dist)[to_node] == itr->second
-                        && (*old_prev)[to_node] < (*prevs)[to_node]) {
-                        (*prevs)[to_node] = (*old_prev)[to_node];
-                    }
-                }
-                // totalDistance.erase(this->id);
-                // prevOfThatNode.erase(this->id);
-            }
+            // if (totalDistance.find(this->id) != totalDistance.end()) {
+            //     unordered_map<int, int> *old_dist = totalDistance[this->id];
+            //     unordered_map<int, int> *old_prev = prevOfThatNode[this->id];
+            //     for (unordered_map<int,int>::iterator itr = recordDist->begin(); itr != recordDist->end(); itr++) {
+            //         int to_node = itr->first;
+            //         // cout << "from: " << this->id << " to: " << to_node << " (*prevs)[to_node]: " << (*prevs)[to_node] << endl;
+            //         // cout << "from: " << this->id << " to: " << to_node << " (*old_prev)[to_node]: " << (*old_prev)[to_node] << endl;
+            //         if ((*old_dist).find(to_node) != (*old_dist).end() 
+            //             && (*old_dist)[to_node] == itr->second
+            //             && (*old_prev)[to_node] < (*prevs)[to_node]
+            //             && still_connected(*old_prev, graph, to_node)) {
+            //             (*prevs)[to_node] = (*old_prev)[to_node];
+            //         }
+            //     }
+            //     // totalDistance.erase(this->id);
+            //     // prevOfThatNode.erase(this->id);
+            // }
             // cout << __LINE__ << endl;
 
             totalDistance[this->id] = recordDist;
@@ -149,6 +147,19 @@ class Link_State {
 			}
             // cout << __LINE__ << endl;
         }
+
+        // bool still_connected(unordered_map<int, int>& old_prev, map<int, Node*>& graph, int to) {
+        //     for (auto node_to = graph.find(to); to != this->id && node_to != graph.end();) {
+        //         if (node_to->second->edges.find(old_prev[to]) != node_to->second->edges.end()) {
+        //             to = old_prev[to];
+        //             node_to = graph.find(to);
+        //         } else {
+        //             return false;
+        //         }
+        //     }
+        //     return to == this->id;
+        // }
+
 
         int get_idx_of_min_cost(unordered_map<int, int>* map) {
             int min = INT_MAX;
@@ -174,21 +185,21 @@ class Link_State {
 
     // including update
     void build_graph(string input) {
-        // cout << "Line: " << __LINE__ << endl;
+        // // cout << "Line: " << __LINE__ << endl;
         vector<string> splitted = str_split(input);
         
         int node1 = stoi(splitted[0]); // TODO: free
         int node2 = stoi(splitted[1]);
         int dist = stoi(splitted[2]);
-        // cout << "node1: " << node1 << endl; 
-        // cout << "node2: " << node2 << endl;
-        // cout << "dist: " << dist << endl;
+        // // cout << "node1: " << node1 << endl; 
+        // // cout << "node2: " << node2 << endl;
+        // // cout << "dist: " << dist << endl;
         auto it1 = graph.find(node1);
         if (it1 != graph.end()) { // contains
             if (dist > 0) {
-                // cout << "Contains Node start: " << __LINE__ << endl;
+                // // cout << "Contains Node start: " << __LINE__ << endl;
                 it1->second->add_or_updateNei(node2, dist);
-                // cout << "Contains Node end : " << __LINE__ << endl;
+                // // cout << "Contains Node end : " << __LINE__ << endl;
             } else {
                 it1->second->remove_nei(node2);
             }
@@ -213,7 +224,7 @@ class Link_State {
                 graph.find(node2)->second->add_or_updateNei(node1, dist);
             }
         }
-        // cout << "Line: " << __LINE__ << endl;
+        // // cout << "Line: " << __LINE__ << endl;
     }
 
     vector<string> str_split(string input) {
@@ -235,11 +246,12 @@ class Link_State {
         for(itr = graph.begin(); itr != graph.end(); itr++) {
             itr->second->build_forwarding_table(graph, prevOfThatNode, totalDistance);
         }
-        // cout << __LINE__ << endl;
+        // // cout << __LINE__ << endl;
     }
 
     void print_results(FILE *file_out, char *message_file) {
         // forwarding tables
+        // cout << __LINE__ << endl;
         for (map<int, Node*>::iterator itr_i = graph.begin(); itr_i != graph.end(); itr_i++) {
             for (map<int, Node*>::iterator itr_j = graph.begin(); itr_j != graph.end(); itr_j++) {
                 int next = itr_i->second->forwarding_hop(itr_j->first);
@@ -250,13 +262,13 @@ class Link_State {
                 } 
             }
         }
-        // cout << __LINE__ << endl;
+        // // cout << __LINE__ << endl;
 
         print_messages(file_out, message_file);
     }
 
     void print_messages(FILE *file_out, char *message_file) {
-        // cout << __LINE__ << endl;
+        // // cout << __LINE__ << endl;
         string line;
         ifstream msgfile(message_file);
         while (getline(msgfile, line)) {
@@ -280,7 +292,7 @@ class Link_State {
                 fprintf(file_out, "from %d to %d cost infinite hops unreachable message %s\n", node1, node2, splitted[2].c_str());
             }
         }
-        // cout << __LINE__ << endl;
+        // // cout << __LINE__ << endl;
     }
 
     // TODO: problems track:
@@ -314,10 +326,10 @@ int main(int argc, char** argv) {
     string line;
     ifstream topofile(argv[1]);
     while(getline(topofile, line)) {
-        // cout << line << endl;
+        // // cout << line << endl;
         ls.build_graph(line);
     }
-    // cout << __LINE__ << endl;
+    // // cout << __LINE__ << endl;
     // build forwarding table
     ls.build_nodes_forwarding_tables();
 
@@ -329,6 +341,7 @@ int main(int argc, char** argv) {
     string c_line;
     while (getline(changefile, c_line)) {
         // TODO: update?
+        // cout << __LINE__ << endl;
         ls.build_graph(c_line);
         ls.build_nodes_forwarding_tables();
         ls.print_results(fpOut, argv[2]);
