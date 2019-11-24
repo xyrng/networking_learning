@@ -58,3 +58,8 @@ vm/
 mp2/src/sample_sender.c
 .vscode/
 *test*
+
+# notebook file
+mp4/.ipynb_checkpoints/
+mp4/output1.txt
+*.ipynb
