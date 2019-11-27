@@ -57,9 +57,9 @@ class Node:
     def my_turn(self):
         if self.count_down > 0:
             self.count_down -= 1
-            return 1
-        elif self.count_down == 0:
             return 0
+        elif self.count_down == 0:
+            return 1
 
 #         if not busy:
 #             if self.count_down > 0:
@@ -74,6 +74,10 @@ class Node:
 #                 self.meet_collision()
 #                 return 5
 #             return 0
+
+
+
+
 
 
 
@@ -139,13 +143,11 @@ class CSMA:
         time = 0
         while True:
             send_candidates = []
-            if time == self.tol_time:
+            if time >= self.tol_time:
                 break
             for node in self.nodes:
                 curr = node.my_turn()
-                if curr == 0:
-                    continue
-                elif curr == 1:
+                if curr == 1:
                     send_candidates.append(node)
 
             num_cand = len(send_candidates)
@@ -157,10 +159,14 @@ class CSMA:
                 time += self.packet_len
                 send_candidates[0].send_packet()
             else:
-                self.coll_time += 1
-                time += 1
-                for node in send_candidates:
-                    node.meet_collision()
+                time += self.packet_len
+                work_node = randint(0, num_cand)
+                self.sending_time += self.packet_len
+                for i in range(num_cand):
+                    if i == work_node:
+                        send_candidates[i].send_packet()
+                    else:
+                        send_candidates[i].meet_collision()
 
 
     def __var_trans(self):
@@ -182,19 +188,22 @@ class CSMA:
         return val
 
     def create_report(self, file_name):
-        print("self.sending_time: %d\n" % self.sending_time)
-        print("self.idle_time: %d\n" % self.idle_time)
-        chan_util = round(self.sending_time/self.tol_time, 4)
-        print("chan_util: %f\n" % chan_util)
-        idle_frac = round(self.idle_time/self.tol_time, 4)
-        print("idle_frac: %f\n" % idle_frac)
+        print("self.sending_time: %d" % self.sending_time)
+        print("self.idle_time: %d" % self.idle_time)
         total_collisions = self.get_total_collisions()
+        print("Total number of collisions: %d" % total_collisions)
+        chan_util = round(self.sending_time/self.tol_time, 4)
+        print("chan_util: %f" % chan_util)
+        idle_frac = round(self.idle_time/self.tol_time, 4)
+        print("idle_frac: %f" % idle_frac)
         with open(file_name, "w+") as file:
             file.write("Channel utilization (in percentage): %f\n" % chan_util)
             file.write("Channel idle fraction (in percentage): %f\n" % idle_frac)
             file.write("Total number of collisions: %d\n" % total_collisions)
             file.write("Variance in number of successful transmissions (across all nodes): %f\n" % self.__var_trans())
             file.write("Variance in number of collisions (across all nodes): %f\n" % self.__var_coll())
+
+
 
 
 
