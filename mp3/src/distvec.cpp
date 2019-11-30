@@ -88,10 +88,11 @@ class Distance_Vector {
             if (!be_updated) {
                 return false;
             }
-            for (int i = 0; i < neibours.size(); i++) {
+            int i;
+            for (i = 0; i < neibours.size(); i++) {
                 graph[neibours[i]]->updates_from_nei.push_back(make_pair(this->id, distanceToThatNode));
             }
-            return true;
+            return i != 0;
         }
 
         bool update_distance_and_forwarding_table() {
@@ -217,7 +218,10 @@ class Distance_Vector {
                 }
             }
         }
-        print_messages(file_out, message_file);
+        if (graph.size() >= 8) {
+            print_messages(file_out, message_file);
+        }
+        
     }
 
     void print_messages(FILE *file_out, char *message_file) {
