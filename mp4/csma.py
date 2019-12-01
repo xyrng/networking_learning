@@ -1,16 +1,35 @@
 import sys
 from random import randint
 from statistics import pvariance
+from functools import total_ordering
+from heapq import heapify, heapreplace
 
 
+@total_ordering
 class Node:
-    def __init__(self, R, M):
+    def __init__(self, id, R, M):
+        self.id = id
         self._reset_R(R)
         self.coll_ceil = M
         self.num_colls = 0
         self.num_trans = 0
         self.count_down_val = 0
         self._rand_back_off()
+
+    def __lt__(self, other):
+        return (self.count_down_val, self.id) < (other.count_down_val, other.id)
+
+    def __le__(self, other):
+        return (self.count_down_val, self.id) <= (other.count_down_val, other.id)
+
+    def __ge__(self, other):
+        return (self.count_down_val, self.id) >= (other.count_down_val, other.id)
+
+    def __gt__(self, other):
+        return (self.count_down_val, self.id) > (other.count_down_val, other.id)
+
+    def __eq__(self, other):
+        return (self.count_down_val, self.id) == (other.count_down_val, other.id)
 
     @property
     def r_val(self):
@@ -30,9 +49,6 @@ class Node:
 
     def _rand_back_off(self):
         self.count_down_val = randint(0, self.r_val)
-
-    def count_down(self):
-        self.count_down_val -= 1
 
     def reset(self, R=None):
         self._reset_R(R)
@@ -58,23 +74,15 @@ class CSMA:
         assert type(self.r_list) is tuple
         self.coll_ceil = config['M']
         self.tol_time = config['T']
-        self.nodes = self._create_nodes(
-            self.num_nodes, self.r_list, self.coll_ceil)
+        self.nodes = [Node(i, R=self.r_list, M=self.coll_ceil) for i in range(self.num_nodes)]
+        heapify(self.nodes)
         self.sending_time = 0
         self.idle_time = 0
         self.coll_time = 0
 
-    def _create_nodes(self, num, r_list, coll_ceil):
-        return [Node(R=r_list, M=coll_ceil) for _ in range(num)]
-
     def _reinitialize(self, N=None, L=None, R=None):
-        increasing_nodes = 0
-        if N is not None:
-            if N > self.num_nodes:
-                increasing_nodes = N - self.num_nodes
-            elif N < self.num_nodes:
-                self.nodes = self.nodes[:N]
-            self.num_nodes = N
+        if N is not None and N < self.num_nodes:
+            self.nodes = self.nodes[:N]
         if L is not None:
             self.packet_len = L
         if R is not None:
@@ -83,8 +91,10 @@ class CSMA:
 
         for node in self.nodes:
             node.reset(R)
-        for _ in range(increasing_nodes):
-            self.nodes.append(Node(R=self.r_list, M=self.coll_ceil))
+        for i in range(self.num_nodes, N):
+            self.nodes.append(Node(i, R=self.r_list, M=self.coll_ceil))
+        heapify(self.nodes)
+        self.num_nodes = N
         self.sending_time = 0
         self.idle_time = 0
         self.coll_time = 0
@@ -99,37 +109,29 @@ class CSMA:
             self._reinitialize(N=N, L=L, R=R)
         time = 0
         occupied_flag = False
-        last_sender = None
         while time < self.tol_time:
             if occupied_flag:
                 occupied_flag = False
-                last_sender.sent_packet()
                 self.sending_time += self.packet_len
+                self.nodes[0].sent_packet()
+                heapreplace(self.nodes, self.nodes[0])
 
-            next_candidates = [node for node in self.nodes if node.has_timeout]
-            num_cand = len(next_candidates)
-            if num_cand == 0:
-                time += 1
-                self.idle_time += 1
+            min_candidate = self.nodes[0]
+            if not min_candidate.has_timeout:
+                idle = min_candidate.count_down_val
+                time += idle
+                self.idle_time += idle
                 for node in self.nodes:
-                    node.count_down()
-            elif num_cand == 1:
-                time += self.packet_len
-                occupied_flag = True
-                last_sender, = next_candidates
-            else:  # collision
-                # time += self.packet_len
-                # work_node = randint(0, num_cand)
-                # self.sending_time += self.packet_len
-                # for i in range(num_cand):
-                #     if i == work_node:
-                #         next_candidates[i].sent_packet()
-                #     else:
-                #         next_candidates[i].meet_collision()
+                    node.count_down_val -= idle
+            elif self.nodes[1].has_timeout or self.nodes[2].has_timeout:  # collision
                 time += 1
                 self.coll_time += 1
-                for node in next_candidates:
-                    node.meet_collision()
+                while self.nodes[0].has_timeout:
+                    self.nodes[0].meet_collision()
+                    heapreplace(self.nodes, self.nodes[0])
+            else:
+                time += self.packet_len
+                occupied_flag = True
 
         if occupied_flag:  # Simulation terminates before tranmission finished
             self.sending_time += self.packet_len - (time - self.tol_time)
